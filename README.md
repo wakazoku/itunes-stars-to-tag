@@ -1,4 +1,4 @@
-# star_rate_sync
+# itunes-stars-to-tag
 
 iTunes (Windows版) のライブラリに登録されている **星評価** を、音楽ファイルの **物理タグ** に書き込んで MusicBee 等の他プレイヤーで読めるようにする Python スクリプト。
 
