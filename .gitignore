@@ -1,0 +1,24 @@
+# 実行時に生成されるユーザー固有のファイル
+sync_progress.json
+sync_log.txt
+*_output.txt
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 仮想環境
+.venv/
+venv/
+env/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
