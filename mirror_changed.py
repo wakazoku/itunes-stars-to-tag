@@ -97,18 +97,24 @@ def main() -> None:
         "failed": 0,
     }
     log_lines: list[str] = []
+    # 未処理 (NO-DST / NO-SRC / OUT-OF-SRC-ROOT / FAIL) の行はここに残し、
+    # 後で changed_files.txt を「未処理ぶんだけに」書き戻す。
+    # こうすると次回 mirror は未処理ぶんだけが対象になる。
+    remaining_lines: list[str] = []
 
     for src_str in src_lines:
         src = Path(src_str)
         if not src.exists():
             stats["skipped_no_src"] += 1
             log_lines.append(f"NO-SRC               {src}")
+            remaining_lines.append(src_str)
             continue
 
         dst = to_mirror(src, src_root, dst_root)
         if dst is None:
             stats["skipped_out_of_root"] += 1
             log_lines.append(f"OUT-OF-SRC-ROOT      {src}")
+            remaining_lines.append(src_str)
             continue
 
         if not dst.exists():
@@ -124,9 +130,11 @@ def main() -> None:
                 except Exception as e:
                     stats["failed"] += 1
                     log_lines.append(f"FAIL                 {src} -> {dst} :: {e}")
+                    remaining_lines.append(src_str)
             else:
                 stats["skipped_no_dst"] += 1
                 log_lines.append(f"NO-DST               {dst}")
+                remaining_lines.append(src_str)
             continue
 
         if args.dry_run:
@@ -139,6 +147,7 @@ def main() -> None:
         except Exception as e:
             stats["failed"] += 1
             log_lines.append(f"FAIL                 {src} -> {dst} :: {e}")
+            remaining_lines.append(src_str)
 
     success_total = stats["copied"] + stats["created"]
     skipped_total = (
@@ -176,6 +185,22 @@ def main() -> None:
         ])
     else:
         print("詳細ログ: なし (全件処理されました)")
+
+    # 本番実行時のみ、未処理ぶんだけを残して changed_files.txt を書き換える。
+    # dry-run では一覧の状態を一切変えない (再現性を保つため)。
+    if not args.dry_run and src_lines:
+        new_content = "\n".join(remaining_lines)
+        if remaining_lines:
+            new_content += "\n"
+        list_path.write_text(new_content, encoding="utf-8")
+        cleared = len(src_lines) - len(remaining_lines)
+        if remaining_lines and cleared > 0:
+            print(f"{args.list}: 処理済み {cleared} 件を除外、未処理 {len(remaining_lines)} 件を残しました")
+        elif remaining_lines:
+            print(f"{args.list}: 未処理 {len(remaining_lines)} 件 (今回処理できたものはありません)")
+        else:
+            print(f"{args.list}: クリアしました (全件ミラー済み)")
+
     display.print_footer()
 
 
