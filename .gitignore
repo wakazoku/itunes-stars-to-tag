@@ -1,6 +1,13 @@
+# ローカル環境固有の設定 (パスなど)
+.env
+
 # 実行時に生成されるユーザー固有のファイル
 sync_progress.json
+sync_state.json
+sync_state.json.broken
 sync_log.txt
+mirror_log.txt
+changed_files.txt
 *_output.txt
 
 # Python
