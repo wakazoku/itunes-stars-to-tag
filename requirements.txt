@@ -1,3 +1,4 @@
 pywin32>=306
 mutagen>=1.47.0
 tqdm>=4.66.0
+python-dotenv>=1.0.0
