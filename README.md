@@ -95,6 +95,27 @@ STAR_RATE_SYNC_DST_ROOT=C:\Users\YOUR_NAME\Music\MusicBee\Music
 
 ## 使い方
 
+CLI で使うのが基本ですが、オプション選択と実行結果の確認をウィンドウ内で
+完結させたい場合は **GUI ランチャー** を使えます。
+
+### GUI (簡易ランチャー)
+
+`start_gui.pyw` をダブルクリックすると Tkinter のウィンドウが立ち上がり、
+タブで Sync / Mirror / Verify を切り替えられます。
+
+- 各タブにオプション (チェックボックス・数値入力) を用意
+- 「▶ 実行」で内部的に既存 CLI を `subprocess` で起動
+- 標準出力はウィンドウ内のテキスト領域へリアルタイムに表示
+- 「■ 停止」で実行中の処理を中断 (詳細は下記注意)
+- 書き込み系タブ (Sync / Mirror) は **初期状態で dry-run が ON**。
+  一度ドライランで確認してからチェックを外して本番実行する想定
+
+仕組み・拡張ポイントの詳細は [docs/gui.md](docs/gui.md) を参照。
+
+> **停止についての注意**: 「■ 停止」はプロセスを強制終了するため、ちょうど書き込み中だった曲は中途半端な状態になる可能性があります。state ファイルが破損した場合は自動退避され、再実行 (必要に応じて `--force-all`) で回復できます。
+>
+> Tkinter は Python に標準同梱されています。追加のインストールは不要です。
+
 ### 基本フロー (iTunes 原本だけ更新する)
 
 評価データを物理タグへ書き込む前に **必ずドライランで対象を確認** してください。
@@ -178,7 +199,7 @@ py mirror_changed.py               # 実コピー
 |---|---|---|
 | `sync_state.json` | `sync_ratings.py` | PID → `{ rating, path }`。差分判定のための「前回値」 |
 | `sync_state.json.broken` | `sync_ratings.py` | JSON が破損していた場合の自動退避先 |
-| `changed_files.txt` | `sync_ratings.py` | 今回 new / modified / removed 判定された曲の絶対パス一覧 |
+| `changed_files.txt` | `sync_ratings.py` / `mirror_changed.py` | 今回 new / modified / removed 判定された曲の絶対パス一覧。`mirror_changed.py` の本番実行後はコピー成功ぶんが取り除かれ、未処理 (NO-DST など) だけが残る |
 | `sync_log.txt` | `sync_ratings.py` | スキップ・失敗の詳細ログ |
 | `mirror_log.txt` | `mirror_changed.py` | コピー失敗・コピー先不在の詳細ログ |
 | `verify_output.txt` | `verify_tags.py` | タグ読み戻し検証結果 |
@@ -240,12 +261,18 @@ star_rate_sync/
 ├── sync_ratings.py        # iTunes -> ファイルタグ同期 (CLI)
 ├── mirror_changed.py      # 変更ファイルを別フォルダへミラーコピー (CLI)
 ├── verify_tags.py         # 書き込み済みタグの読み戻し検証 (CLI)
+├── gui.py                 # Tkinter GUI 本体 (CLI を subprocess で呼ぶラッパー)
+├── start_gui.pyw          # GUI 起動用ランチャー (ダブルクリックで起動)
 ├── starcore/              # 純粋ロジック (テスト容易な内部パッケージ)
 │   ├── diff.py            # 差分判定
 │   ├── paths.py           # src -> dst のパス変換
 │   ├── state.py           # sync_state.json の load/save
-│   └── tagging.py         # MP3 / M4A への rating 書き込み
+│   ├── tagging.py         # MP3 / M4A への rating 書き込み
+│   ├── display.py         # CLI 出力の共通フォーマッタ
+│   └── aggregate.py       # 星ラベル・遷移分類のヘルパ
 ├── tests/                 # pytest テスト
+├── docs/
+│   └── gui.md             # GUI の仕組み・拡張メモ
 ├── conftest.py            # pytest rootdir 設定
 ├── .env.example           # mirror_changed.py 用の設定見本
 ├── .env                   # ローカル設定 (gitignore 対象)
