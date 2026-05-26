@@ -56,6 +56,40 @@ STAR_RATE_SYNC_DST_ROOT=C:\Users\YOUR_NAME\Music\MusicBee\Music
 
 詳細は [docs/gui.md](docs/gui.md)。
 
+#### GUI シナリオ集
+
+下記の CLI シナリオ集 (A〜E) を GUI でやる場合の操作手順。
+各ステップで「dry-run を一度実行 → 出力確認 → 本番実行」を挟むのが安全。
+
+##### A. 普段の運用 (評価 + ファイル本体を両方同期)
+
+1. iTunes を起動しておく
+2. `[評価同期] > Sync` タブ → dry-run のまま「▶ 実行」→ 件数確認 → dry-run チェックを外して再実行
+3. `[ファイル同期] > Files` タブ → 「▶ 実行」(dry-run) → 件数確認 → `apply` ON で再実行
+4. `[評価同期] > Mirror` タブ → `create-missing` ON、dry-run のまま「▶ 実行」→ dry-run チェックを外して再実行
+5. MusicBee でライブラリ再スキャン
+
+##### B. 評価だけ変えたとき
+
+1. `[評価同期] > Sync` → dry-run 確認 → 本番実行
+2. `[評価同期] > Mirror` → dry-run 確認 → 本番実行 (`create-missing` は OFF のままで OK)
+
+##### C. iTunes に新曲を追加しただけ (評価変更なし)
+
+1. `[ファイル同期] > Files` → dry-run 確認 → `apply` ON で実行
+2. `[評価同期] > Mirror` → `create-missing` ON で実行
+
+##### D. MusicBee 側が古い気がする (救出)
+
+1. `[評価同期] > Repair` → dry-run のまま「▶ 実行」→ ズレ件数を確認
+2. 同タブで `apply` ON + `include-missing` ON にして再実行
+3. `[評価同期] > Mirror` → `create-missing` ON で実行
+
+##### E. 孤児 (DST にだけある曲) の精査
+
+`[ファイル同期] > Files` を `apply` ON で実行すると、リポジトリ直下に `orphan_files.txt` が生成される。
+中身を眺めて、不要ならエクスプローラで手動削除。自動削除はしない設計。
+
 ### CLI シナリオ集
 
 #### A. 普段の運用 (評価 + ファイル本体を両方同期)
