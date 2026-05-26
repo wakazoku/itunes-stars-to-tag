@@ -8,6 +8,7 @@ sync_state.json.broken
 sync_log.txt
 mirror_log.txt
 changed_files.txt
+orphan_files.txt
 *_output.txt
 
 # Python

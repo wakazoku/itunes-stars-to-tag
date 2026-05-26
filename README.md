@@ -2,7 +2,7 @@
 
 iTunes (Windows版) のライブラリに登録されている **星評価** を、音楽ファイルの **物理タグ** に書き込んで MusicBee 等の他プレイヤーで読めるようにする Python スクリプト。
 
-加えて、変更があったファイルだけを別フォルダ (例: MusicBee 用のコピー先) へミラーコピーする機能を持つ。
+加えて、変更があったファイルだけを別フォルダ (例: MusicBee 用のコピー先) へミラーコピーする機能と、評価とは独立に **ファイル本体の差分同期** (mtime+size 比較) を行う機能を持つ。
 
 ## なぜ必要か
 
@@ -24,6 +24,7 @@ iTunes 用フォルダとは別のフォルダ (コピー) を MusicBee に見�
 - `changed_files.txt` は **追記マージ方式**。mirror を実行する前に sync を続けて2回叩いても、前回の差分は失われない
 - `mirror_changed.py` で `changed_files.txt` の各曲を SRC_ROOT → DST_ROOT で対応付け直してコピー
 - `repair_mirror.py` で「state と MusicBee 側ファイルタグのズレ」を検出し、ミラーで取りこぼした曲を救出可能
+- `sync_files.py` で SRC/DST のファイル本体差分 (mtime+size) を検出し、評価を持たない曲も含めてミラーパイプラインに乗せられる
 
 ## 対応環境
 
@@ -102,8 +103,9 @@ CLI で使うのが基本ですが、オプション選択と実行結果の確�
 
 ### GUI (簡易ランチャー)
 
-`start_gui.pyw` をダブルクリックすると Tkinter のウィンドウが立ち上がり、
-タブで Sync / Mirror / Verify / Repair を切り替えられます。
+`start_gui.pyw` をダブルクリックすると Tkinter のウィンドウが立ち上がります。
+タブは 2 階層になっており、まず外側で **評価同期** / **ファイル同期** を選び、
+内側で個別の操作 (Sync / Mirror / Verify / Repair / Files) を選びます。
 
 - 各タブにオプション (チェックボックス・数値入力) を用意
 - 「▶ 実行」で内部的に既存 CLI を `subprocess` で起動
@@ -135,6 +137,24 @@ py verify_tags.py
 
 # 5. 差分のみ書き込み (二回目以降は自動的にスキップされる)
 py sync_ratings.py
+```
+
+### ファイル本体だけ MusicBee 側へ追従させる場合 (評価不問)
+
+評価を変えていなくても、iTunes 側に新しい曲を追加した・既存ファイルの
+タグを編集した、というケースで MusicBee 側にコピー漏れが出ます。
+`sync_files.py` は **評価に関係なくファイル本体の mtime+size を比較**
+して新規/更新を検出し、`changed_files.txt` に積みます。
+
+```powershell
+# 1. dry-run で件数確認 (孤児ファイル一覧も出る)
+py sync_files.py
+
+# 2. 検出結果を changed_files.txt に追記
+py sync_files.py --apply
+
+# 3. Mirror で実コピー (新規曲があるので --create-missing 必須)
+py mirror_changed.py --create-missing
 ```
 
 ### MusicBee 用に別フォルダへ反映する場合
@@ -216,6 +236,52 @@ py mirror_changed.py --dry-run
 py mirror_changed.py
 ```
 
+### `sync_files.py` のコマンドラインオプション
+
+**評価とは独立** に、SRC_ROOT (iTunes 側) と DST_ROOT (MusicBee 側) の
+ファイル本体を mtime+size で比較し、`new` (DST に無い) と `updated`
+(mtime/size が違う) を `changed_files.txt` に追記する。
+あとは `mirror_changed.py --create-missing` で実コピーすれば、
+**星評価が付いていない曲も含めて** MusicBee 側に揃う。
+
+孤児 (DST にあるが SRC に無いファイル) は **削除せず** `orphan_files.txt`
+にレポートのみ。意図しない削除を避けるため、削除は手動で行う想定。
+
+| オプション | 既定値 | 説明 |
+|---|---|---|
+| `--src-root PATH` | `.env` の `STAR_RATE_SYNC_SRC_ROOT` | iTunes 側ルート |
+| `--dst-root PATH` | `.env` の `STAR_RATE_SYNC_DST_ROOT` | MusicBee 側ルート |
+| `--changed-out PATH` | `changed_files.txt` | 追記先 |
+| `--orphan-out PATH` | `orphan_files.txt` | 孤児レポートの出力先 |
+| `--apply` | off | OFF なら dry-run。ON で追記＆孤児出力 |
+| `--no-include-new` | off | 新規 (DST に無い) を追記対象から外す |
+| `--no-include-updated` | off | 更新 (mtime/size 差) を追記対象から外す |
+| `--mtime-tolerance N` | `1.0` | mtime 一致とみなす誤差秒数 (FAT32 等は `2.0` 推奨) |
+
+代表的な使い方:
+
+```powershell
+# 1. dry-run で差分件数を確認
+py sync_files.py
+
+# 2. 検出結果を changed_files.txt に追記
+py sync_files.py --apply
+
+# 3. Mirror で実コピー (新規曲があるので --create-missing 必須)
+py mirror_changed.py --dry-run --create-missing
+py mirror_changed.py --create-missing
+```
+
+差分判定の仕組み:
+
+- **mtime + size 一致** → 同一とみなす
+- **size 違い** → 内容が違う (=updated)
+- **mtime 違い (許容超過)** → 内容が違う疑い (=updated)
+- mtime 許容秒数 (`--mtime-tolerance`) はファイルシステムまたぎの誤差吸収用
+
+> rsync のデフォルト判定方式と同じ発想。ハッシュ比較ではないので
+> 「同じ mtime/size で中身だけ違う」極めて稀なケースは検出できない点に注意。
+
 ### `verify_tags.py` のコマンドラインオプション
 
 書き込み済みファイルのタグを読み戻して、`sync_state.json` の値と一致するかを検証します。iTunes COM は使いません (iTunes 未起動でも実行可)。
@@ -234,7 +300,8 @@ py mirror_changed.py
 |---|---|---|
 | `sync_state.json` | `sync_ratings.py` | PID → `{ rating, path }`。差分判定のための「前回値」 |
 | `sync_state.json.broken` | `sync_ratings.py` | JSON が破損していた場合の自動退避先 |
-| `changed_files.txt` | `sync_ratings.py` / `mirror_changed.py` / `repair_mirror.py` | 変更があった曲の絶対パス一覧。`sync_ratings.py` は **既存内容に追記マージ** (`--force-all` のときのみ上書き)、`mirror_changed.py` の本番実行後はコピー成功ぶんが取り除かれ未処理 (NO-DST など) だけが残る、`repair_mirror.py --apply` はズレている曲を追記する |
+| `changed_files.txt` | `sync_ratings.py` / `mirror_changed.py` / `repair_mirror.py` / `sync_files.py` | 変更があった曲の絶対パス一覧。`sync_ratings.py` は **既存内容に追記マージ** (`--force-all` のときのみ上書き)、`mirror_changed.py` の本番実行後はコピー成功ぶんが取り除かれ未処理 (NO-DST など) だけが残る、`repair_mirror.py --apply` / `sync_files.py --apply` はズレ・差分のあるパスを追記する |
+| `orphan_files.txt` | `sync_files.py` | DST 側にあるが SRC 側に無いファイルの一覧。レポートのみで削除は行われない |
 | `sync_log.txt` | `sync_ratings.py` | スキップ・失敗の詳細ログ |
 | `mirror_log.txt` | `mirror_changed.py` | コピー失敗・コピー先不在の詳細ログ |
 | `verify_output.txt` | `verify_tags.py` | タグ読み戻し検証結果 |
@@ -306,6 +373,7 @@ py -m pytest
 - `paths.to_mirror`: 大文字小文字の差・末尾セパレータ・SRC 外パスなどの分岐
 - `state.load`/`save`: JSON round-trip、Unicode 維持、壊れた JSON の自動退避
 - `changed_list.merge_paths`/`read_paths`/`write_paths`: 重複除去 (大小無視)・既存維持・round-trip・「sync 連続実行で差分が消えない」シナリオ
+- `file_diff.scan_tree`/`compare_trees`: 拡張子フィルタ・mtime 許容範囲・new/updated/same/orphan の分類
 
 iTunes COM 部分と音声ファイルへの実 I/O はテスト対象外です (実環境依存のため、必要に応じて `--dry-run` で確認してください)。
 
@@ -317,10 +385,12 @@ star_rate_sync/
 ├── mirror_changed.py      # 変更ファイルを別フォルダへミラーコピー (CLI)
 ├── verify_tags.py         # 書き込み済みタグの読み戻し検証 (CLI)
 ├── repair_mirror.py       # state と DST タグの不一致を救出 (CLI)
+├── sync_files.py          # ファイル本体の差分同期 (CLI、評価非依存)
 ├── gui.py                 # Tkinter GUI 本体 (CLI を subprocess で呼ぶラッパー)
 ├── start_gui.pyw          # GUI 起動用ランチャー (ダブルクリックで起動)
 ├── starcore/              # 純粋ロジック (テスト容易な内部パッケージ)
-│   ├── diff.py            # 差分判定
+│   ├── diff.py            # 評価の差分判定
+│   ├── file_diff.py       # ファイル本体の差分判定 (mtime+size)
 │   ├── paths.py           # src -> dst のパス変換
 │   ├── state.py           # sync_state.json の load/save
 │   ├── changed_list.py    # changed_files.txt の I/O とマージ

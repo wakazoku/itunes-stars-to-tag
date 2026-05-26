@@ -196,6 +196,13 @@ class App:
         # も changed_files.txt に追記される。Mirror 側で --create-missing 必須。
         self.var_repair_include_missing = tk.BooleanVar(value=False)
 
+        # Files タブは「SRC と DST のファイル本体を mtime+size で比較し、
+        # 新規/更新を changed_files.txt に追記、孤児はレポート」する処理。
+        # 評価には触らない。
+        self.var_files_apply = tk.BooleanVar(value=False)
+        self.var_files_no_include_new = tk.BooleanVar(value=False)
+        self.var_files_no_include_updated = tk.BooleanVar(value=False)
+
         # ---- UI 構築 ----
         self._build_notebook()
         self._build_run_row()
@@ -207,9 +214,18 @@ class App:
 
     # ---- レイアウト ----
     def _build_notebook(self) -> None:
-        self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(side="top", fill="x", padx=12, pady=(12, 6))
+        # ネスト Notebook: 外側で「評価同期 / ファイル同期」を切り替え、
+        # 内側で各操作タブを切り替える。
+        #
+        # 「いま選択されているタブ」を _on_run から拾うため、内側のタブの
+        # ttk.Frame の widget id (str) -> TabSpec のマッピングを覚えておく。
+        # こうすると、内側 Notebook がいくつ生えていても _current_spec()
+        # は 1 行で済む (outer.select() の inner_notebook.select() を引く)。
+        self.outer_notebook = ttk.Notebook(self.root)
+        self.outer_notebook.pack(side="top", fill="x", padx=12, pady=(12, 6))
 
+        # 平坦に並べた spec のリスト (互換用)。
+        # 評価同期グループ + ファイル同期グループの順で並べる。
         self.tabs: List[TabSpec] = [
             TabSpec("Sync", "sync_ratings.py",
                     self._build_sync_tab, self._compose_sync_argv),
@@ -221,10 +237,38 @@ class App:
                     self._build_repair_tab, self._compose_repair_argv),
         ]
 
-        for spec in self.tabs:
-            frame = ttk.Frame(self.notebook, padding=12)
-            spec.build_options(frame)
-            self.notebook.add(frame, text=spec.label)
+        # ファイル同期用の spec (評価には触らないジョブ)
+        files_spec = TabSpec("Files", "sync_files.py",
+                             self._build_files_tab, self._compose_files_argv)
+        self.tabs.append(files_spec)
+
+        # グループ定義: (外側タブのラベル, そのグループに属する TabSpec のリスト)
+        self.tab_groups: List[tuple[str, List[TabSpec]]] = [
+            ("評価同期", self.tabs[:4]),
+            ("ファイル同期", [files_spec]),
+        ]
+
+        # 外側タブごとに内側 Notebook を生やしていく。
+        self.inner_notebooks: List[ttk.Notebook] = []
+        self.tab_id_to_spec: dict[str, TabSpec] = {}
+
+        for group_label, group_specs in self.tab_groups:
+            outer_frame = ttk.Frame(self.outer_notebook)
+            inner_nb = ttk.Notebook(outer_frame)
+            inner_nb.pack(fill="both", expand=True, padx=4, pady=4)
+            for spec in group_specs:
+                frame = ttk.Frame(inner_nb, padding=12)
+                spec.build_options(frame)
+                inner_nb.add(frame, text=spec.label)
+                self.tab_id_to_spec[str(frame)] = spec
+            self.outer_notebook.add(outer_frame, text=group_label)
+            self.inner_notebooks.append(inner_nb)
+
+    def _current_spec(self) -> TabSpec:
+        """現在画面に出ている内側タブに対応する TabSpec を返す。"""
+        outer_idx = self.outer_notebook.index("current")
+        inner_nb = self.inner_notebooks[outer_idx]
+        return self.tab_id_to_spec[inner_nb.select()]
 
     def _build_sync_tab(self, parent: ttk.Frame) -> None:
         ttk.Label(parent, text="iTunes → ファイルタグへ評価を書き込みます",
@@ -291,6 +335,35 @@ class App:
                   foreground="#999").pack(anchor="w")
         ttk.Label(parent,
                   text="※ SRC/DST のパスは .env (STAR_RATE_SYNC_SRC_ROOT / _DST_ROOT) で設定",
+                  foreground="#999").pack(anchor="w")
+
+    def _build_files_tab(self, parent: ttk.Frame) -> None:
+        ttk.Label(parent,
+                  text="SRC と DST のファイル本体を比較し、新規/更新を",
+                  foreground="#555").pack(anchor="w")
+        ttk.Label(parent,
+                  text="changed_files.txt に追記します (評価には触りません)",
+                  foreground="#555").pack(anchor="w", pady=(0, 8))
+
+        # 既定は dry-run (apply OFF)。
+        ttk.Checkbutton(parent,
+                        text="apply (changed_files.txt に追記する。OFFなら dry-run)",
+                        variable=self.var_files_apply).pack(anchor="w")
+        ttk.Checkbutton(parent,
+                        text="新規ファイル (DSTに無し) を追記対象から外す",
+                        variable=self.var_files_no_include_new).pack(anchor="w")
+        ttk.Checkbutton(parent,
+                        text="更新ファイル (mtime/size 差) を追記対象から外す",
+                        variable=self.var_files_no_include_updated).pack(anchor="w")
+
+        ttk.Label(parent,
+                  text="※ apply 後は Mirror タブで create-missing ON にして実行",
+                  foreground="#999").pack(anchor="w", pady=(8, 0))
+        ttk.Label(parent,
+                  text="※ 孤児 (SRCに無し) は orphan_files.txt に書き出し、削除はしません",
+                  foreground="#999").pack(anchor="w")
+        ttk.Label(parent,
+                  text="※ SRC/DST のパスは .env で設定",
                   foreground="#999").pack(anchor="w")
 
     def _build_run_row(self) -> None:
@@ -374,12 +447,22 @@ class App:
             argv.append("--include-missing")
         return argv
 
+    def _compose_files_argv(self) -> List[str]:
+        argv = [sys.executable, "-u", "sync_files.py"]
+        if self.var_files_apply.get():
+            argv.append("--apply")
+        if self.var_files_no_include_new.get():
+            argv.append("--no-include-new")
+        if self.var_files_no_include_updated.get():
+            argv.append("--no-include-updated")
+        return argv
+
     # ---- ボタンハンドラ ----
     def _on_run(self) -> None:
         if self.runner.is_running():
             return
 
-        spec = self.tabs[self.notebook.index("current")]
+        spec = self._current_spec()
         try:
             argv = spec.compose_argv()
         except tk.TclError:
