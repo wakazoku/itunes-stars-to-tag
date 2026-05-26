@@ -1,30 +1,15 @@
 # itunes-stars-to-tag
 
-iTunes (Windows版) のライブラリに登録されている **星評価** を、音楽ファイルの **物理タグ** に書き込んで MusicBee 等の他プレイヤーで読めるようにする Python スクリプト。
+iTunes (Windows版) のライブラリに登録されている **星評価** を、音楽ファイルの **物理タグ** に書き込んで MusicBee 等の他プレイヤーで読めるようにする Python ツール群。
 
 加えて、変更があったファイルだけを別フォルダ (例: MusicBee 用のコピー先) へミラーコピーする機能と、評価とは独立に **ファイル本体の差分同期** (mtime+size 比較) を行う機能を持つ。
 
 ## なぜ必要か
 
-iTunes (Windows) の星評価は **iTunes ライブラリのデータベース内** に保存されており、ファイル本体には書き込まれません。
-そのため MusicBee や foobar2000 などの他プレイヤーから同じライブラリフォルダを参照しても、評価が引き継がれません。
+iTunes (Windows) の星評価は **iTunes ライブラリのデータベース内** に保存され、ファイル本体には書き込まれない。
+そのため MusicBee や foobar2000 等の他プレイヤーから同じライブラリフォルダを参照しても、評価が引き継がれない。
 
-このスクリプトは iTunes COM API 経由で評価を読み取り、各ファイルの形式に応じた **物理タグ** に評価を書き込むことで、他プレイヤーでも同じ評価を読めるようにします。
-
-iTunes 用フォルダとは別のフォルダ (コピー) を MusicBee に見せている場合は、`mirror_changed.py` を使って **変更があったファイルだけ** をコピー先に上書きできます。
-
-## 動作内容
-
-- iTunes COM API 経由で全トラックを走査
-- 「ユーザーが手で付けた星評価」だけを抽出（iTunes の自動推測評価は除外）
-- 各ファイルの形式に応じて物理タグへ評価を書き込み
-  - **MP3** → ID3v2.3 の `POPM` フレーム（MusicBee / Windows Media Player 互換マッピング）
-  - **M4A (AAC / ALAC)** → `----:com.apple.iTunes:RATING` フリーフォームアトム
-- **前回値との差分 (new / modified / removed) だけを書き込み**、変更があった曲を `changed_files.txt` に出力
-- `changed_files.txt` は **追記マージ方式**。mirror を実行する前に sync を続けて2回叩いても、前回の差分は失われない
-- `mirror_changed.py` で `changed_files.txt` の各曲を SRC_ROOT → DST_ROOT で対応付け直してコピー
-- `repair_mirror.py` で「state と MusicBee 側ファイルタグのズレ」を検出し、ミラーで取りこぼした曲を救出可能
-- `sync_files.py` で SRC/DST のファイル本体差分 (mtime+size) を検出し、評価を持たない曲も含めてミラーパイプラインに乗せられる
+このツールは iTunes COM API 経由で評価を読み取り、各ファイルの形式に応じた **物理タグ** に書き込む。iTunes と別フォルダを MusicBee に見せている場合は、変更があったファイルだけをミラーコピーできる。
 
 ## 対応環境
 
@@ -35,52 +20,16 @@ iTunes 用フォルダとは別のフォルダ (コピー) を MusicBee に見�
 | Python | 3.10 以上（3.11 で動作確認済み） |
 | 対応ファイル形式 | MP3 / M4A (AAC) / M4A (ALAC) / MP4 / M4B |
 
-### 対応外
-
-- **FLAC / WAV / AIFF**: 未実装（必要なら拡張可能）
-- **.m4p (DRM 保護)**: 書き込み不可かつ MusicBee で再生不可のため意図的にスキップ
-- **iTunes Match / Apple Music クラウド楽曲**: ローカルファイルが無いためスキップ
-- **半星 (★0.5刻み)**: 未対応（POPM マッピングを拡張すれば可）
-- **macOS の Music.app**: COM が無いため非対応
+**対応外**: FLAC / WAV / AIFF / .m4p (DRM) / iTunes Match / 半星評価 / macOS
 
 ## セットアップ
-
-### 1. リポジトリ取得
 
 ```powershell
 git clone https://github.com/<your-account>/star_rate_sync.git
 cd star_rate_sync
-```
-
-### 2. 依存ライブラリのインストール
-
-```powershell
 pip install -r requirements.txt
-```
 
-`pywin32` / `mutagen` / `tqdm` / `python-dotenv` がインストールされます。
-
-開発 (テスト実行) もする場合:
-
-```powershell
-pip install -r requirements-dev.txt
-```
-
-`pytest` が追加されます。
-
-### 3. インポート確認
-
-```powershell
-py -c "import win32com.client, mutagen, tqdm, dotenv; print('OK')"
-```
-
-`OK` と表示されれば準備完了です。
-
-### 4. `.env` の作成 (mirror_changed.py を使う場合のみ)
-
-`mirror_changed.py` を使うときは、SRC/DST フォルダのパスを `.env` で指定します。`.env.example` をコピーして編集してください。
-
-```powershell
+# .env でフォルダのパスを設定 (mirror 系を使うとき)
 copy .env.example .env
 notepad .env
 ```
@@ -92,303 +41,90 @@ STAR_RATE_SYNC_SRC_ROOT=C:\Users\YOUR_NAME\Music\iTunes\iTunes Media\Music
 STAR_RATE_SYNC_DST_ROOT=C:\Users\YOUR_NAME\Music\MusicBee\Music
 ```
 
-`.env` は `.gitignore` で除外されるので、リポジトリにコミットされません。CLI 引数 `--src-root` / `--dst-root` を渡せばそちらが優先されます。
-
-> **Tips**: Windows 10/11 では `python` コマンドが Microsoft Store のスタブに当たって失敗することがあります。本ドキュメントでは Python ランチャー `py` を使う例で統一しています。
+> **Tips**: Windows 10/11 では `python` コマンドが Microsoft Store のスタブに当たって失敗することがある。本ドキュメントでは Python ランチャー `py` を使う例で統一している。
 
 ## 使い方
 
-CLI で使うのが基本ですが、オプション選択と実行結果の確認をウィンドウ内で
-完結させたい場合は **GUI ランチャー** を使えます。
+### GUI ランチャー (推奨)
 
-### GUI (簡易ランチャー)
+`start_gui.pyw` をダブルクリックすると Tkinter のウィンドウが立ち上がる。タブは 2 階層:
 
-`start_gui.pyw` をダブルクリックすると Tkinter のウィンドウが立ち上がります。
-タブは 2 階層になっており、まず外側で **評価同期** / **ファイル同期** を選び、
-内側で個別の操作 (Sync / Mirror / Verify / Repair / Files) を選びます。
+- **評価同期**: Sync / Mirror / Verify / Repair
+- **ファイル同期**: Files
 
-- 各タブにオプション (チェックボックス・数値入力) を用意
-- 「▶ 実行」で内部的に既存 CLI を `subprocess` で起動
-- 標準出力はウィンドウ内のテキスト領域へリアルタイムに表示
-- 「■ 停止」で実行中の処理を中断 (詳細は下記注意)
-- 書き込み系タブ (Sync / Mirror) は **初期状態で dry-run が ON**。
-  一度ドライランで確認してからチェックを外して本番実行する想定
+書き込み系タブは初期状態で **dry-run が ON**。一度確認してからチェックを外して本番実行する。
 
-仕組み・拡張ポイントの詳細は [docs/gui.md](docs/gui.md) を参照。
+詳細は [docs/gui.md](docs/gui.md)。
 
-> **停止についての注意**: 「■ 停止」はプロセスを強制終了するため、ちょうど書き込み中だった曲は中途半端な状態になる可能性があります。state ファイルが破損した場合は自動退避され、再実行 (必要に応じて `--force-all`) で回復できます。
->
-> Tkinter は Python に標準同梱されています。追加のインストールは不要です。
+### CLI シナリオ集
 
-### 基本フロー (iTunes 原本だけ更新する)
+#### A. 普段の運用 (評価 + ファイル本体を両方同期)
 
-評価データを物理タグへ書き込む前に **必ずドライランで対象を確認** してください。
+評価変更、新曲追加、タグ編集、を一気に MusicBee へ反映。
 
 ```powershell
 # 1. iTunes を起動しておく
-# 2. ドライラン (書き込みせず差分を表示)
-py sync_ratings.py --dry-run
 
-# 3. 少量テスト (5件だけ書き込み、MusicBee 等で確認)
-py sync_ratings.py --limit 5
+# 2. 評価の差分を物理タグに書き込む
+py sync_ratings.py --dry-run    # 確認
+py sync_ratings.py              # 本番
 
-# 4. (任意) 物理タグの読み戻し検証
-py verify_tags.py
-
-# 5. 差分のみ書き込み (二回目以降は自動的にスキップされる)
-py sync_ratings.py
-```
-
-### ファイル本体だけ MusicBee 側へ追従させる場合 (評価不問)
-
-評価を変えていなくても、iTunes 側に新しい曲を追加した・既存ファイルの
-タグを編集した、というケースで MusicBee 側にコピー漏れが出ます。
-`sync_files.py` は **評価に関係なくファイル本体の mtime+size を比較**
-して新規/更新を検出し、`changed_files.txt` に積みます。
-
-```powershell
-# 1. dry-run で件数確認 (孤児ファイル一覧も出る)
-py sync_files.py
-
-# 2. 検出結果を changed_files.txt に追記
+# 3. ファイル本体の差分も検出して追記
 py sync_files.py --apply
 
-# 3. Mirror で実コピー (新規曲があるので --create-missing 必須)
-py mirror_changed.py --create-missing
-```
-
-### MusicBee 用に別フォルダへ反映する場合
-
-iTunes 原本フォルダ (`C:\...\iTunes Media\Music`) とは別に、コピーした MusicBee 用フォルダ (`C:\...\MusicBee\Music`) を MusicBee に見せている場合の手順:
-
-```powershell
-# 1. iTunes 原本のタグを更新し、変更分を changed_files.txt に出力
-py sync_ratings.py
-
-# 2. 変更があったファイルだけを MusicBee 側のフォルダへコピー
-py mirror_changed.py --dry-run     # 予定だけ表示
-py mirror_changed.py               # 実コピー
-```
-
-`mirror_changed.py` は SRC_ROOT / DST_ROOT の **相対パス構造が同じであること** を前提に、`src/Artist/Album/song.mp3` を `dst/Artist/Album/song.mp3` へ上書きコピーします。
-
-### `sync_ratings.py` のコマンドラインオプション
-
-| オプション | 説明 |
-|---|---|
-| (なし) | `sync_state.json` を見て **差分 (new / modified / removed) だけ** 書き込み |
-| `--dry-run` | 書き込みせず差分対象だけ表示。本番前の確認用 |
-| `--limit N` | 差分が N 件に達した時点で停止。少量テスト用 |
-| `--force-all` | state を無視して全評価曲を書き直す。state も上書きされる |
-| `--changed-out PATH` | 変更ファイル一覧の出力先 (既定: `changed_files.txt`) |
-| `--detail` | rating 遷移マップ (`★n → ★m が何曲`) も表示する |
-
-`--resume` は廃止されました。`sync_state.json` による差分検出が常時 ON のため、同じ役目がデフォルト動作に吸収されています。
-
-### `mirror_changed.py` のコマンドラインオプション
-
-| オプション | 既定値 | 説明 |
-|---|---|---|
-| `--src-root PATH` | `.env` の `STAR_RATE_SYNC_SRC_ROOT` | iTunes 側 (コピー元) の音楽フォルダのルート |
-| `--dst-root PATH` | `.env` の `STAR_RATE_SYNC_DST_ROOT` | MusicBee 側 (コピー先) の音楽フォルダのルート |
-| `--list PATH` | `changed_files.txt` | コピー対象ファイル一覧 |
-| `--dry-run` | off | コピーせず予定だけ表示 |
-| `--create-missing` | off | コピー先に同名ファイルが無くても、親フォルダごと作って新規コピーする |
-
-パスの解決順:
-
-1. CLI 引数 (`--src-root` / `--dst-root`) が最優先
-2. `.env` の `STAR_RATE_SYNC_SRC_ROOT` / `STAR_RATE_SYNC_DST_ROOT`
-3. それも未指定ならエラー (exit code 2)
-
-> **デフォルト動作**: コピー先にファイルが無い場合は **スキップしてログに残す** (=「フォルダ構造のズレ」を検出しやすい)。事前に MusicBee 側にコピーしていない状態で大量に新規作成して欲しい場合のみ `--create-missing` を指定してください。
-
-### `repair_mirror.py` のコマンドラインオプション
-
-「iTunes → ファイルタグ書き込みは成功したが、MusicBee 側へのコピーが取りこぼされた」
-ケースを救出するためのツール。`sync_state.json` を真として、MusicBee 側
-(`DST_ROOT`) のファイルタグを直接読み戻し、ズレている曲を `changed_files.txt`
-に追記する。あとは `mirror_changed.py` で再コピーすれば直る。
-
-| オプション | 既定値 | 説明 |
-|---|---|---|
-| `--state PATH` | `sync_state.json` | 真として参照する state ファイル |
-| `--src-root PATH` | `.env` の `STAR_RATE_SYNC_SRC_ROOT` | iTunes 側ルート |
-| `--dst-root PATH` | `.env` の `STAR_RATE_SYNC_DST_ROOT` | MusicBee 側ルート |
-| `--changed-out PATH` | `changed_files.txt` | 追記先 |
-| `--apply` | off | OFF なら dry-run (表示のみ)。ON で追記する |
-| `--include-missing` | off | DST にまだファイルが無い曲も救出対象に含める。Mirror 側で `--create-missing` 併用が必要 |
-
-代表的な使い方:
-
-```powershell
-# 1. ズレが無いか確認 (dry-run)
-py repair_mirror.py
-
-# 2. ズレている曲を changed_files.txt に追記
-py repair_mirror.py --apply
-
-# 3. MusicBee 側にまだコピーされていない曲も含めたい場合
-py repair_mirror.py --apply --include-missing
-
-# 4. 通常通り mirror で反映 (include-missing したなら --create-missing も)
-py mirror_changed.py --dry-run
-py mirror_changed.py
-```
-
-### `sync_files.py` のコマンドラインオプション
-
-**評価とは独立** に、SRC_ROOT (iTunes 側) と DST_ROOT (MusicBee 側) の
-ファイル本体を mtime+size で比較し、`new` (DST に無い) と `updated`
-(mtime/size が違う) を `changed_files.txt` に追記する。
-あとは `mirror_changed.py --create-missing` で実コピーすれば、
-**星評価が付いていない曲も含めて** MusicBee 側に揃う。
-
-孤児 (DST にあるが SRC に無いファイル) は **削除せず** `orphan_files.txt`
-にレポートのみ。意図しない削除を避けるため、削除は手動で行う想定。
-
-| オプション | 既定値 | 説明 |
-|---|---|---|
-| `--src-root PATH` | `.env` の `STAR_RATE_SYNC_SRC_ROOT` | iTunes 側ルート |
-| `--dst-root PATH` | `.env` の `STAR_RATE_SYNC_DST_ROOT` | MusicBee 側ルート |
-| `--changed-out PATH` | `changed_files.txt` | 追記先 |
-| `--orphan-out PATH` | `orphan_files.txt` | 孤児レポートの出力先 |
-| `--apply` | off | OFF なら dry-run。ON で追記＆孤児出力 |
-| `--no-include-new` | off | 新規 (DST に無い) を追記対象から外す |
-| `--no-include-updated` | off | 更新 (mtime/size 差) を追記対象から外す |
-| `--mtime-tolerance N` | `1.0` | mtime 一致とみなす誤差秒数 (FAT32 等は `2.0` 推奨) |
-
-代表的な使い方:
-
-```powershell
-# 1. dry-run で差分件数を確認
-py sync_files.py
-
-# 2. 検出結果を changed_files.txt に追記
-py sync_files.py --apply
-
-# 3. Mirror で実コピー (新規曲があるので --create-missing 必須)
+# 4. MusicBee 側にミラー (新規曲があるので --create-missing)
 py mirror_changed.py --dry-run --create-missing
 py mirror_changed.py --create-missing
+
+# 5. MusicBee でライブラリ再スキャン
 ```
 
-差分判定の仕組み:
+#### B. 評価だけ変えたとき
 
-- **mtime + size 一致** → 同一とみなす
-- **size 違い** → 内容が違う (=updated)
-- **mtime 違い (許容超過)** → 内容が違う疑い (=updated)
-- mtime 許容秒数 (`--mtime-tolerance`) はファイルシステムまたぎの誤差吸収用
+```powershell
+py sync_ratings.py
+py mirror_changed.py     # --create-missing 不要
+```
 
-> rsync のデフォルト判定方式と同じ発想。ハッシュ比較ではないので
-> 「同じ mtime/size で中身だけ違う」極めて稀なケースは検出できない点に注意。
+#### C. iTunes に新曲を追加しただけ (評価変更なし)
 
-### `verify_tags.py` のコマンドラインオプション
+```powershell
+py sync_files.py --apply
+py mirror_changed.py --create-missing
+```
 
-書き込み済みファイルのタグを読み戻して、`sync_state.json` の値と一致するかを検証します。iTunes COM は使いません (iTunes 未起動でも実行可)。
+#### D. MusicBee 側が古い気がする (救出)
 
-| オプション | 既定値 | 説明 |
-|---|---|---|
-| `--state PATH` | `sync_state.json` | 検証対象の state ファイル |
-| `--limit N` | `0` (全件) | 検証件数の上限 |
-| `--output PATH` | `verify_output.txt` | 検証結果の出力先 |
+```powershell
+py repair_mirror.py                            # 差分チェック
+py repair_mirror.py --apply --include-missing  # 追記
+py mirror_changed.py --create-missing
+```
 
-### 出力ファイル
+#### E. 孤児 (DST にだけある曲) の精査
 
-実行すると以下のファイルがカレントディレクトリに生成されます（`.gitignore` で無視されます）。
+`sync_files.py --apply` を実行すると `orphan_files.txt` が生成される。手動で確認して、不要ならエクスプローラで削除。自動削除はしない設計。
 
-| ファイル | 出力元 | 内容 |
-|---|---|---|
-| `sync_state.json` | `sync_ratings.py` | PID → `{ rating, path }`。差分判定のための「前回値」 |
-| `sync_state.json.broken` | `sync_ratings.py` | JSON が破損していた場合の自動退避先 |
-| `changed_files.txt` | `sync_ratings.py` / `mirror_changed.py` / `repair_mirror.py` / `sync_files.py` | 変更があった曲の絶対パス一覧。`sync_ratings.py` は **既存内容に追記マージ** (`--force-all` のときのみ上書き)、`mirror_changed.py` の本番実行後はコピー成功ぶんが取り除かれ未処理 (NO-DST など) だけが残る、`repair_mirror.py --apply` / `sync_files.py --apply` はズレ・差分のあるパスを追記する |
-| `orphan_files.txt` | `sync_files.py` | DST 側にあるが SRC 側に無いファイルの一覧。レポートのみで削除は行われない |
-| `sync_log.txt` | `sync_ratings.py` | スキップ・失敗の詳細ログ |
-| `mirror_log.txt` | `mirror_changed.py` | コピー失敗・コピー先不在の詳細ログ |
-| `verify_output.txt` | `verify_tags.py` | タグ読み戻し検証結果 |
+### MusicBee 側の表示更新
 
-> 旧 `sync_progress.json` (PID リスト) は新仕様では使われません。残っていても無視されるので、不要なら削除して構いません。
-
-## MusicBee 側の確認手順
-
-書き込み後 (および `mirror_changed.py` でコピー後)、MusicBee の表示を更新するために以下のいずれかを行ってください：
+書き込み / コピー後、MusicBee の表示を更新するには:
 
 1. 該当曲を選択 → 右クリック → **「Send To」 → 「Library: Rescan」**
 2. または `Ctrl+E` でタグを再読み込み
-3. ライブラリ全体を再スキャンする場合: **Edit → Edit Preferences → Library → Scan now**
-
-## 差分検出の仕組み
-
-`sync_ratings.py` は実行のたびに、各曲について次の 4 通りに分類します。
-
-| 分類 | 条件 | 動作 |
-|---|---|---|
-| `new` | 前回 state に無し（または `rating == 0`）で、iTunes 側が 1 以上 | タグへ書き込み、`changed_files.txt` に追加 |
-| `modified` | 前回値と異なる（双方 1 以上） | タグへ上書き、`changed_files.txt` に追加 |
-| `removed` | 前回 1 以上、iTunes 側で 0 (=星を外した) | タグを削除し state からも削除、`changed_files.txt` に追加 |
-| `none` | 変化なし | 何もしない |
-
-これにより、二回目以降の実行は **iTunes 側で変わった曲だけ** 触ります。MusicBee 側へのコピー量も最小限になります。
-
-### 「state が信用できない」ときの逃げ道
-
-| 手段 | 方法 | 効果 |
-|---|---|---|
-| 全件強制再書き込み | `py sync_ratings.py --force-all` | state を無視して全評価曲を書き直し、state を上書きする |
-| state リセット | `del sync_state.json` してから普通に実行 | 全評価曲が `new` 扱い |
-| 特定曲だけ復旧 | `sync_state.json` を開いて該当 PID 行を削除 | 次回その曲だけ `new` 扱い |
-
-### 「MusicBee 側だけ評価がズレている」ときの救出フロー
-
-iTunes 側ファイルには新しい評価が書き込まれているのに、MusicBee 側のファイルに
-古い評価が残っている場合 (例: `sync_ratings.py` を二度連続で実行して
-`changed_files.txt` をリセットしてしまった過去がある等)。
-
-`repair_mirror.py` が `sync_state.json` と MusicBee 側ファイルタグを照合して、
-ズレているファイルを `changed_files.txt` に追記してくれる。
-
-```powershell
-py repair_mirror.py                          # まず dry-run で件数確認
-py repair_mirror.py --apply                  # changed_files.txt に追記
-py repair_mirror.py --apply --include-missing  # 未コピー曲も含めたい場合
-py mirror_changed.py                         # 通常通り反映
-```
-
-GUI なら **Repair タブ** から同じ操作ができる (apply / include-missing を
-チェックボックスで切り替え)。
-
-加えて、`sync_state.json` が JSON として壊れていた場合は **自動で `.broken` にリネームされ、空 state で続行** されます。詰むことはありません。
-
-## テスト
-
-純粋ロジック (`starcore/diff.py` `paths.py` `state.py`) は pytest で単体テスト済みです。
-
-```powershell
-pip install -r requirements-dev.txt
-py -m pytest
-```
-
-主な観点:
-
-- `diff.classify`: new / modified / removed / none の網羅
-- `paths.to_mirror`: 大文字小文字の差・末尾セパレータ・SRC 外パスなどの分岐
-- `state.load`/`save`: JSON round-trip、Unicode 維持、壊れた JSON の自動退避
-- `changed_list.merge_paths`/`read_paths`/`write_paths`: 重複除去 (大小無視)・既存維持・round-trip・「sync 連続実行で差分が消えない」シナリオ
-- `file_diff.scan_tree`/`compare_trees`: 拡張子フィルタ・mtime 許容範囲・new/updated/same/orphan の分類
-
-iTunes COM 部分と音声ファイルへの実 I/O はテスト対象外です (実環境依存のため、必要に応じて `--dry-run` で確認してください)。
+3. ライブラリ全体: **Edit → Edit Preferences → Library → Scan now**
 
 ## ディレクトリ構成
 
 ```
 star_rate_sync/
-├── sync_ratings.py        # iTunes -> ファイルタグ同期 (CLI)
-├── mirror_changed.py      # 変更ファイルを別フォルダへミラーコピー (CLI)
-├── verify_tags.py         # 書き込み済みタグの読み戻し検証 (CLI)
-├── repair_mirror.py       # state と DST タグの不一致を救出 (CLI)
-├── sync_files.py          # ファイル本体の差分同期 (CLI、評価非依存)
-├── gui.py                 # Tkinter GUI 本体 (CLI を subprocess で呼ぶラッパー)
-├── start_gui.pyw          # GUI 起動用ランチャー (ダブルクリックで起動)
-├── starcore/              # 純粋ロジック (テスト容易な内部パッケージ)
+├── sync_ratings.py        # iTunes -> ファイルタグ同期
+├── mirror_changed.py      # 変更ファイルを別フォルダへミラーコピー
+├── verify_tags.py         # 書き込み済みタグの読み戻し検証
+├── repair_mirror.py       # state と DST タグの不一致を救出
+├── sync_files.py          # ファイル本体の差分同期 (評価非依存)
+├── gui.py                 # Tkinter GUI (CLI を subprocess で呼ぶ)
+├── start_gui.pyw          # GUI 起動用ランチャー
+├── starcore/              # 純粋ロジック (テスト容易)
 │   ├── diff.py            # 評価の差分判定
 │   ├── file_diff.py       # ファイル本体の差分判定 (mtime+size)
 │   ├── paths.py           # src -> dst のパス変換
@@ -398,106 +134,24 @@ star_rate_sync/
 │   ├── display.py         # CLI 出力の共通フォーマッタ
 │   └── aggregate.py       # 星ラベル・遷移分類のヘルパ
 ├── tests/                 # pytest テスト
-├── docs/
-│   └── gui.md             # GUI の仕組み・拡張メモ
-├── conftest.py            # pytest rootdir 設定
-├── .env.example           # mirror_changed.py 用の設定見本
-├── .env                   # ローカル設定 (gitignore 対象)
-├── requirements.txt
-├── requirements-dev.txt
-└── README.md
+└── docs/                  # 詳細ドキュメント
 ```
 
-## 技術仕様
+## テスト
 
-### iTunes Rating ↔ POPM マッピング (MP3)
-
-MP3 の `POPM` フレームは 1byte (0〜255) で評価を持ちますが、「255をどう★に対応させるか」はプレイヤーごとに慣習が異なります。
-本ツールは **MusicBee / Windows Media Player 標準** のマッピングを採用しています。
-
-| iTunes Rating | 星 | POPM 値 |
-|---:|:---:|---:|
-| 0 | (未評価) | (POPM フレーム自体を削除) |
-| 20 | ★1 | 1 |
-| 40 | ★2 | 64 |
-| 60 | ★3 | 128 |
-| 80 | ★4 | 196 |
-| 100 | ★5 | 255 |
-
-> **注意**: 単純な `rating * 2.55` だと ★1〜★4 の値が MusicBee 標準とズレます。必ずルックアップテーブル方式を使用すること。
-
-### MP4 (M4A) のタグ仕様
-
-```
-Atom: ----:com.apple.iTunes:RATING
-Type: フリーフォーム (FORMAT_TEXT)
-Value: "0"〜"100" の文字列を UTF-8 でバイト化  (rating=0 ではアトム自体を削除)
+```powershell
+pip install -r requirements-dev.txt
+py -m pytest
 ```
 
-- `\xa9rate` のような短いアトムは MP4 仕様に存在しません
-- 業界標準は上記フリーフォームアトムで、MusicBee / foobar2000 / Mp3tag 等が読みます
+純粋ロジック (`starcore/*`) は単体テスト済み (110+ ケース)。iTunes COM 部分と実 I/O はテスト対象外 (実環境依存のため、必要に応じて `--dry-run` で確認する)。
 
-### フィルタ条件（スキップ対象）
+## ドキュメント
 
-以下のいずれかに該当するトラックは処理されません：
-
-| 条件 | 理由 |
-|---|---|
-| `track.Kind != 1` | ローカルファイルでない (CD / Store / ストリーム) |
-| `track.RatingKind != 0` | 自動推測の評価（ユーザー意思ではない） |
-| `track.Location` が空 / ファイル不在 | 書き込めない |
-| 拡張子が対応外 | サポート外形式 |
-| `.m4p` | DRM 保護 |
-
-> rating == 0 (未評価) でも、state に「以前は ★ が付いていた」記録があれば `removed` として処理されます。
-
-### iTunes COM API の主な利用箇所
-
-| 呼び出し | 用途 |
-|---|---|
-| `win32com.client.Dispatch("iTunes.Application")` | iTunes に接続（未起動なら自動起動） |
-| `itunes.LibraryPlaylist.Tracks` | 全トラック取得 |
-| `track.Kind`, `track.Rating`, `track.RatingKind`, `track.Location` | 各種プロパティ |
-| `itunes.ITObjectPersistentIDHigh(track)` / `Low(track)` | PersistentID（64bit）の取得 |
-
-> **Note**: `track.PersistentID` というプロパティは存在しません。`Application` 経由で上位/下位32bit に分けて取得する必要があります（`pywin32` を使うときによくハマるポイント）。
-
-## トラブルシューティング
-
-| 症状 | 原因 | 対処 |
-|---|---|---|
-| `pywintypes.com_error` | iTunes が起動していない / アクセス権 | iTunes を起動してから再実行 |
-| `PermissionError` | 他ソフトでファイル再生中、または同期中 | 再生停止、OneDrive 等の同期一時停止 |
-| `FileNotFoundError` | iTunes が認識するパスとファイル実体がズレている | iTunes でファイル位置を更新 |
-| MusicBee で星が反映されない | MusicBee のキャッシュ未更新 | MusicBee でライブラリ再スキャン |
-| MusicBee 側だけ評価が古いまま | `changed_files.txt` がリセットされた状態で mirror を流してしまった等 | `py repair_mirror.py` で検出 → `--apply` で追記 → `py mirror_changed.py` で再反映 |
-| `RatingKind` AttributeError | iTunes バージョンが古い | iTunes を最新版に更新 |
-| `mirror_changed.py` で大量の `NO-DST` | SRC_ROOT / DST_ROOT のフォルダ構造がズレている | `--src-root` / `--dst-root` を正しいルートに指定、または `--create-missing` |
-| `sync_state.json` の内容が古い気がする | 何らかの理由で state が現実と乖離 | `--force-all` で全件書き直し、または `del sync_state.json` |
-| `python` が反応しない (Windows) | Microsoft Store スタブが優先されている | `py` コマンドを使用、または「アプリ実行エイリアス」で `python.exe` を無効化 |
-
-## 安全に使うための推奨手順
-
-このツールは音楽ファイルのタグを **直接書き換えます**。万一の事故に備えて以下を推奨します：
-
-1. **必ず最初に `--dry-run`** で差分件数とサンプルを確認
-2. **`--limit 5` などで少量テスト** を行い、MusicBee 等で表示を確認してから全件実行
-3. 大切なファイルは別フォルダに **バックアップ** を取ってから実行
-4. **OneDrive / Dropbox 等の同期フォルダ内** で実行する場合は、書き込み中のロック競合を避けるため同期を一時停止する
-
-## 既知の制約
-
-- **iTunes → ファイル の片方向同期のみ**: ファイル側のタグから iTunes へ書き戻す機能は無し
-- **アルバム評価は同期しない**: トラック評価のみ
-- **エラー時の自動リトライなし**: 失敗時は再実行 (state を見て差分のみ処理されるので無駄が少ない)
-- **大規模ライブラリでも比較的高速**: 11,900 曲規模のライブラリで約 1 分（実行環境により変動）
+- [docs/cli.md](docs/cli.md) — 各 CLI の全オプション、出力ファイル、差分仕様、救出フロー
+- [docs/internals.md](docs/internals.md) — POPM マッピング / MP4 アトム / COM API / トラブルシューティング
+- [docs/gui.md](docs/gui.md) — GUI 内部の仕組みと拡張ポイント
 
 ## ライセンス
 
-ライセンス未指定です。改変・再配布等を行う場合は事前にご相談ください。
-
-## 関連
-
-- [iTunes COM Interface Documentation (非公式ミラー)](https://documentation.help/iTunesCOM/)
-- [ID3v2.3 Specification - Popularimeter](https://id3.org/id3v2.3.0#Popularimeter)
-- [mutagen Documentation](https://mutagen.readthedocs.io/)
+ライセンス未指定。改変・再配布等を行う場合は事前にご相談ください。
