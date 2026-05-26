@@ -189,6 +189,13 @@ class App:
 
         self.var_verify_limit = tk.IntVar(value=0)
 
+        # Repair タブは「state と DST 側タグを照合して、ズレを changed_files.txt
+        # に追記する」処理。dry-run が初期 ON、apply (=本番) が OFF。
+        self.var_repair_apply = tk.BooleanVar(value=False)
+        # include-missing を ON にすると、DST 側にまだファイルが無い曲 (新規コピー対象)
+        # も changed_files.txt に追記される。Mirror 側で --create-missing 必須。
+        self.var_repair_include_missing = tk.BooleanVar(value=False)
+
         # ---- UI 構築 ----
         self._build_notebook()
         self._build_run_row()
@@ -210,6 +217,8 @@ class App:
                     self._build_mirror_tab, self._compose_mirror_argv),
             TabSpec("Verify", "verify_tags.py",
                     self._build_verify_tab, self._compose_verify_argv),
+            TabSpec("Repair", "repair_mirror.py",
+                    self._build_repair_tab, self._compose_repair_argv),
         ]
 
         for spec in self.tabs:
@@ -257,6 +266,32 @@ class App:
         row.pack(anchor="w")
         ttk.Label(row, text="limit (0=全件):").pack(side="left")
         ttk.Entry(row, textvariable=self.var_verify_limit, width=8).pack(side="left", padx=6)
+
+    def _build_repair_tab(self, parent: ttk.Frame) -> None:
+        ttk.Label(parent,
+                  text="sync_state.json と MusicBee 側ファイルのタグを照合し、",
+                  foreground="#555").pack(anchor="w")
+        ttk.Label(parent,
+                  text="ズレているファイルを changed_files.txt に追記します",
+                  foreground="#555").pack(anchor="w", pady=(0, 8))
+
+        # 既定は dry-run (apply OFF)。チェックを入れて初めて書き込みが走る。
+        ttk.Checkbutton(parent,
+                        text="apply (changed_files.txt に追記する。OFFなら dry-run)",
+                        variable=self.var_repair_apply).pack(anchor="w")
+        ttk.Checkbutton(parent,
+                        text="include-missing (DST にまだ無い新規曲も対象に含める)",
+                        variable=self.var_repair_include_missing).pack(anchor="w")
+
+        ttk.Label(parent,
+                  text="※ apply 後は Mirror タブで mirror_changed.py を実行してください",
+                  foreground="#999").pack(anchor="w", pady=(8, 0))
+        ttk.Label(parent,
+                  text="※ include-missing を使った後は Mirror 側で create-missing も ON に",
+                  foreground="#999").pack(anchor="w")
+        ttk.Label(parent,
+                  text="※ SRC/DST のパスは .env (STAR_RATE_SYNC_SRC_ROOT / _DST_ROOT) で設定",
+                  foreground="#999").pack(anchor="w")
 
     def _build_run_row(self) -> None:
         row = ttk.Frame(self.root)
@@ -329,6 +364,14 @@ class App:
         limit = self.var_verify_limit.get()
         if limit > 0:
             argv += ["--limit", str(limit)]
+        return argv
+
+    def _compose_repair_argv(self) -> List[str]:
+        argv = [sys.executable, "-u", "repair_mirror.py"]
+        if self.var_repair_apply.get():
+            argv.append("--apply")
+        if self.var_repair_include_missing.get():
+            argv.append("--include-missing")
         return argv
 
     # ---- ボタンハンドラ ----

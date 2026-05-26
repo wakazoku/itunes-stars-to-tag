@@ -19,6 +19,7 @@ import win32com.client
 from tqdm import tqdm
 
 from starcore import aggregate
+from starcore import changed_list
 from starcore import diff
 from starcore import display
 from starcore import state as state_mod
@@ -172,10 +173,20 @@ def main() -> None:
     finally:
         if not args.dry_run:
             state_mod.save(state_path, state)
-            Path(args.changed_out).write_text(
-                "\n".join(changed_paths) + ("\n" if changed_paths else ""),
-                encoding="utf-8",
-            )
+            # changed_files.txt の更新方針:
+            #   - 通常実行: 既存内容に「今回の変更分」を追記マージする。
+            #     (mirror_changed.py を実行する前に sync_ratings.py を続けて
+            #      二回叩くと、前回の差分が空書きで失われてしまうのを防ぐため。
+            #      重複は normcase で除去する。)
+            #   - --force-all: state ごと作り直す用途なので、changed_files.txt も
+            #     上書きで「今回ぶんだけ」にする。
+            changed_out_path = Path(args.changed_out)
+            if args.force_all:
+                merged_paths = list(changed_paths)
+            else:
+                existing = changed_list.read_paths(changed_out_path)
+                merged_paths = changed_list.merge_paths(existing, changed_paths)
+            changed_list.write_paths(changed_out_path, merged_paths)
 
     changed_total = stats["new"] + stats["modified"] + stats["removed"]
     result_label = "書き込み予定:" if args.dry_run else "書き込み成功:"
@@ -229,9 +240,26 @@ def main() -> None:
             (LOG_FILE, "(詳細ログ / dry-run では書き込みなし)"),
         ])
     else:
+        # changed_files.txt は今回ぶん + (force-all でなければ) 既存未処理を含むので
+        # 「今回の差分数」と「最終的な行数」がズレることがある。両方表示する。
+        try:
+            final_lines = sum(
+                1 for line in Path(args.changed_out).read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            )
+        except FileNotFoundError:
+            final_lines = 0
+        if final_lines == changed_total:
+            changed_note = f"(変更ファイル一覧、{final_lines:,} 行)"
+        else:
+            carried = final_lines - changed_total
+            changed_note = (
+                f"(変更ファイル一覧、{final_lines:,} 行 "
+                f"= 今回 {changed_total:,} + 前回未処理 {carried:,})"
+            )
         display.print_kv_section("出力ファイル", [
             (STATE_FILE, "(差分検知用 state)"),
-            (args.changed_out, f"(変更ファイル一覧、{changed_total:,} 行)"),
+            (args.changed_out, changed_note),
             (LOG_FILE, "(詳細ログ)"),
         ])
     display.print_footer()

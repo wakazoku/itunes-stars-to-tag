@@ -21,7 +21,9 @@ iTunes 用フォルダとは別のフォルダ (コピー) を MusicBee に見�
   - **MP3** → ID3v2.3 の `POPM` フレーム（MusicBee / Windows Media Player 互換マッピング）
   - **M4A (AAC / ALAC)** → `----:com.apple.iTunes:RATING` フリーフォームアトム
 - **前回値との差分 (new / modified / removed) だけを書き込み**、変更があった曲を `changed_files.txt` に出力
+- `changed_files.txt` は **追記マージ方式**。mirror を実行する前に sync を続けて2回叩いても、前回の差分は失われない
 - `mirror_changed.py` で `changed_files.txt` の各曲を SRC_ROOT → DST_ROOT で対応付け直してコピー
+- `repair_mirror.py` で「state と MusicBee 側ファイルタグのズレ」を検出し、ミラーで取りこぼした曲を救出可能
 
 ## 対応環境
 
@@ -101,7 +103,7 @@ CLI で使うのが基本ですが、オプション選択と実行結果の確�
 ### GUI (簡易ランチャー)
 
 `start_gui.pyw` をダブルクリックすると Tkinter のウィンドウが立ち上がり、
-タブで Sync / Mirror / Verify を切り替えられます。
+タブで Sync / Mirror / Verify / Repair を切り替えられます。
 
 - 各タブにオプション (チェックボックス・数値入力) を用意
 - 「▶ 実行」で内部的に既存 CLI を `subprocess` で起動
@@ -181,6 +183,39 @@ py mirror_changed.py               # 実コピー
 
 > **デフォルト動作**: コピー先にファイルが無い場合は **スキップしてログに残す** (=「フォルダ構造のズレ」を検出しやすい)。事前に MusicBee 側にコピーしていない状態で大量に新規作成して欲しい場合のみ `--create-missing` を指定してください。
 
+### `repair_mirror.py` のコマンドラインオプション
+
+「iTunes → ファイルタグ書き込みは成功したが、MusicBee 側へのコピーが取りこぼされた」
+ケースを救出するためのツール。`sync_state.json` を真として、MusicBee 側
+(`DST_ROOT`) のファイルタグを直接読み戻し、ズレている曲を `changed_files.txt`
+に追記する。あとは `mirror_changed.py` で再コピーすれば直る。
+
+| オプション | 既定値 | 説明 |
+|---|---|---|
+| `--state PATH` | `sync_state.json` | 真として参照する state ファイル |
+| `--src-root PATH` | `.env` の `STAR_RATE_SYNC_SRC_ROOT` | iTunes 側ルート |
+| `--dst-root PATH` | `.env` の `STAR_RATE_SYNC_DST_ROOT` | MusicBee 側ルート |
+| `--changed-out PATH` | `changed_files.txt` | 追記先 |
+| `--apply` | off | OFF なら dry-run (表示のみ)。ON で追記する |
+| `--include-missing` | off | DST にまだファイルが無い曲も救出対象に含める。Mirror 側で `--create-missing` 併用が必要 |
+
+代表的な使い方:
+
+```powershell
+# 1. ズレが無いか確認 (dry-run)
+py repair_mirror.py
+
+# 2. ズレている曲を changed_files.txt に追記
+py repair_mirror.py --apply
+
+# 3. MusicBee 側にまだコピーされていない曲も含めたい場合
+py repair_mirror.py --apply --include-missing
+
+# 4. 通常通り mirror で反映 (include-missing したなら --create-missing も)
+py mirror_changed.py --dry-run
+py mirror_changed.py
+```
+
 ### `verify_tags.py` のコマンドラインオプション
 
 書き込み済みファイルのタグを読み戻して、`sync_state.json` の値と一致するかを検証します。iTunes COM は使いません (iTunes 未起動でも実行可)。
@@ -199,7 +234,7 @@ py mirror_changed.py               # 実コピー
 |---|---|---|
 | `sync_state.json` | `sync_ratings.py` | PID → `{ rating, path }`。差分判定のための「前回値」 |
 | `sync_state.json.broken` | `sync_ratings.py` | JSON が破損していた場合の自動退避先 |
-| `changed_files.txt` | `sync_ratings.py` / `mirror_changed.py` | 今回 new / modified / removed 判定された曲の絶対パス一覧。`mirror_changed.py` の本番実行後はコピー成功ぶんが取り除かれ、未処理 (NO-DST など) だけが残る |
+| `changed_files.txt` | `sync_ratings.py` / `mirror_changed.py` / `repair_mirror.py` | 変更があった曲の絶対パス一覧。`sync_ratings.py` は **既存内容に追記マージ** (`--force-all` のときのみ上書き)、`mirror_changed.py` の本番実行後はコピー成功ぶんが取り除かれ未処理 (NO-DST など) だけが残る、`repair_mirror.py --apply` はズレている曲を追記する |
 | `sync_log.txt` | `sync_ratings.py` | スキップ・失敗の詳細ログ |
 | `mirror_log.txt` | `mirror_changed.py` | コピー失敗・コピー先不在の詳細ログ |
 | `verify_output.txt` | `verify_tags.py` | タグ読み戻し検証結果 |
@@ -235,6 +270,25 @@ py mirror_changed.py               # 実コピー
 | state リセット | `del sync_state.json` してから普通に実行 | 全評価曲が `new` 扱い |
 | 特定曲だけ復旧 | `sync_state.json` を開いて該当 PID 行を削除 | 次回その曲だけ `new` 扱い |
 
+### 「MusicBee 側だけ評価がズレている」ときの救出フロー
+
+iTunes 側ファイルには新しい評価が書き込まれているのに、MusicBee 側のファイルに
+古い評価が残っている場合 (例: `sync_ratings.py` を二度連続で実行して
+`changed_files.txt` をリセットしてしまった過去がある等)。
+
+`repair_mirror.py` が `sync_state.json` と MusicBee 側ファイルタグを照合して、
+ズレているファイルを `changed_files.txt` に追記してくれる。
+
+```powershell
+py repair_mirror.py                          # まず dry-run で件数確認
+py repair_mirror.py --apply                  # changed_files.txt に追記
+py repair_mirror.py --apply --include-missing  # 未コピー曲も含めたい場合
+py mirror_changed.py                         # 通常通り反映
+```
+
+GUI なら **Repair タブ** から同じ操作ができる (apply / include-missing を
+チェックボックスで切り替え)。
+
 加えて、`sync_state.json` が JSON として壊れていた場合は **自動で `.broken` にリネームされ、空 state で続行** されます。詰むことはありません。
 
 ## テスト
@@ -251,6 +305,7 @@ py -m pytest
 - `diff.classify`: new / modified / removed / none の網羅
 - `paths.to_mirror`: 大文字小文字の差・末尾セパレータ・SRC 外パスなどの分岐
 - `state.load`/`save`: JSON round-trip、Unicode 維持、壊れた JSON の自動退避
+- `changed_list.merge_paths`/`read_paths`/`write_paths`: 重複除去 (大小無視)・既存維持・round-trip・「sync 連続実行で差分が消えない」シナリオ
 
 iTunes COM 部分と音声ファイルへの実 I/O はテスト対象外です (実環境依存のため、必要に応じて `--dry-run` で確認してください)。
 
@@ -261,12 +316,14 @@ star_rate_sync/
 ├── sync_ratings.py        # iTunes -> ファイルタグ同期 (CLI)
 ├── mirror_changed.py      # 変更ファイルを別フォルダへミラーコピー (CLI)
 ├── verify_tags.py         # 書き込み済みタグの読み戻し検証 (CLI)
+├── repair_mirror.py       # state と DST タグの不一致を救出 (CLI)
 ├── gui.py                 # Tkinter GUI 本体 (CLI を subprocess で呼ぶラッパー)
 ├── start_gui.pyw          # GUI 起動用ランチャー (ダブルクリックで起動)
 ├── starcore/              # 純粋ロジック (テスト容易な内部パッケージ)
 │   ├── diff.py            # 差分判定
 │   ├── paths.py           # src -> dst のパス変換
 │   ├── state.py           # sync_state.json の load/save
+│   ├── changed_list.py    # changed_files.txt の I/O とマージ
 │   ├── tagging.py         # MP3 / M4A への rating 書き込み
 │   ├── display.py         # CLI 出力の共通フォーマッタ
 │   └── aggregate.py       # 星ラベル・遷移分類のヘルパ
@@ -343,6 +400,7 @@ Value: "0"〜"100" の文字列を UTF-8 でバイト化  (rating=0 ではアト
 | `PermissionError` | 他ソフトでファイル再生中、または同期中 | 再生停止、OneDrive 等の同期一時停止 |
 | `FileNotFoundError` | iTunes が認識するパスとファイル実体がズレている | iTunes でファイル位置を更新 |
 | MusicBee で星が反映されない | MusicBee のキャッシュ未更新 | MusicBee でライブラリ再スキャン |
+| MusicBee 側だけ評価が古いまま | `changed_files.txt` がリセットされた状態で mirror を流してしまった等 | `py repair_mirror.py` で検出 → `--apply` で追記 → `py mirror_changed.py` で再反映 |
 | `RatingKind` AttributeError | iTunes バージョンが古い | iTunes を最新版に更新 |
 | `mirror_changed.py` で大量の `NO-DST` | SRC_ROOT / DST_ROOT のフォルダ構造がズレている | `--src-root` / `--dst-root` を正しいルートに指定、または `--create-missing` |
 | `sync_state.json` の内容が古い気がする | 何らかの理由で state が現実と乖離 | `--force-all` で全件書き直し、または `del sync_state.json` |
