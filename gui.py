@@ -227,18 +227,18 @@ class App:
         # 平坦に並べた spec のリスト (互換用)。
         # 評価同期グループ + ファイル同期グループの順で並べる。
         self.tabs: List[TabSpec] = [
-            TabSpec("Sync", "sync_ratings.py",
+            TabSpec("書込", "sync_ratings.py",
                     self._build_sync_tab, self._compose_sync_argv),
-            TabSpec("Mirror", "mirror_changed.py",
+            TabSpec("コピー", "mirror_changed.py",
                     self._build_mirror_tab, self._compose_mirror_argv),
-            TabSpec("Verify", "verify_tags.py",
+            TabSpec("検証", "verify_tags.py",
                     self._build_verify_tab, self._compose_verify_argv),
-            TabSpec("Repair", "repair_mirror.py",
+            TabSpec("救出", "repair_mirror.py",
                     self._build_repair_tab, self._compose_repair_argv),
         ]
 
         # ファイル同期用の spec (評価には触らないジョブ)
-        files_spec = TabSpec("Files", "sync_files.py",
+        files_spec = TabSpec("差分", "sync_files.py",
                              self._build_files_tab, self._compose_files_argv)
         self.tabs.append(files_spec)
 
@@ -270,9 +270,28 @@ class App:
         inner_nb = self.inner_notebooks[outer_idx]
         return self.tab_id_to_spec[inner_nb.select()]
 
+    def _add_cli_hint(self, parent: ttk.Frame, script: str, summary: str, hint: str) -> None:
+        """タブ上部に概要・CLI 名・操作の目安を表示する。"""
+        ttk.Label(parent, text=summary, foreground="#555").pack(anchor="w", pady=(0, 4))
+        ttk.Label(
+            parent,
+            text=f"CLI: py {script}",
+            foreground="#666",
+        ).pack(anchor="w", pady=(0, 2))
+        ttk.Label(
+            parent,
+            text=hint,
+            foreground="#999",
+            wraplength=680,
+        ).pack(anchor="w", pady=(0, 8))
+
     def _build_sync_tab(self, parent: ttk.Frame) -> None:
-        ttk.Label(parent, text="iTunes → ファイルタグへ評価を書き込みます",
-                  foreground="#555").pack(anchor="w", pady=(0, 8))
+        self._add_cli_hint(
+            parent,
+            "sync_ratings.py",
+            "iTunes の星評価をファイルタグへ書き込みます",
+            "dry-run ON で件数確認 → OFF にして本番",
+        )
 
         ttk.Checkbutton(parent, text="dry-run (書き込みせず差分だけ表示)",
                         variable=self.var_sync_dry_run).pack(anchor="w")
@@ -287,9 +306,12 @@ class App:
         ttk.Entry(row, textvariable=self.var_sync_limit, width=8).pack(side="left", padx=6)
 
     def _build_mirror_tab(self, parent: ttk.Frame) -> None:
-        ttk.Label(parent,
-                  text="changed_files.txt の曲を MusicBee 側フォルダへコピーします",
-                  foreground="#555").pack(anchor="w", pady=(0, 8))
+        self._add_cli_hint(
+            parent,
+            "mirror_changed.py",
+            "changed_files.txt の曲を MusicBee フォルダへコピーします",
+            "差分 / 救出 のあとに実行。新曲があるときは create-missing も ON",
+        )
 
         ttk.Checkbutton(parent, text="dry-run (コピーせず予定だけ表示)",
                         variable=self.var_mirror_dry_run).pack(anchor="w")
@@ -302,9 +324,12 @@ class App:
                   foreground="#999").pack(anchor="w", pady=(8, 0))
 
     def _build_verify_tab(self, parent: ttk.Frame) -> None:
-        ttk.Label(parent,
-                  text="sync_state.json に記録された値と物理タグを照合します",
-                  foreground="#555").pack(anchor="w", pady=(0, 8))
+        self._add_cli_hint(
+            parent,
+            "verify_tags.py",
+            "sync_state.json と物理タグが一致しているか確認します",
+            "書き込み後の確認用。ファイル本体や MusicBee フォルダは触りません",
+        )
 
         row = ttk.Frame(parent)
         row.pack(anchor="w")
@@ -312,12 +337,12 @@ class App:
         ttk.Entry(row, textvariable=self.var_verify_limit, width=8).pack(side="left", padx=6)
 
     def _build_repair_tab(self, parent: ttk.Frame) -> None:
-        ttk.Label(parent,
-                  text="sync_state.json と MusicBee 側ファイルのタグを照合し、",
-                  foreground="#555").pack(anchor="w")
-        ttk.Label(parent,
-                  text="ズレているファイルを changed_files.txt に追記します",
-                  foreground="#555").pack(anchor="w", pady=(0, 8))
+        self._add_cli_hint(
+            parent,
+            "repair_mirror.py",
+            "sync_state と MusicBee タグを照合し、ズレを changed_files.txt に追記します",
+            "apply OFF で差分確認 → ON で追記。追記後は コピー タブで実行",
+        )
 
         # 既定は dry-run (apply OFF)。チェックを入れて初めて書き込みが走る。
         ttk.Checkbutton(parent,
@@ -328,21 +353,21 @@ class App:
                         variable=self.var_repair_include_missing).pack(anchor="w")
 
         ttk.Label(parent,
-                  text="※ apply 後は Mirror タブで mirror_changed.py を実行してください",
+                  text="※ include-missing 後は コピー 側で create-missing も ON に",
                   foreground="#999").pack(anchor="w", pady=(8, 0))
-        ttk.Label(parent,
-                  text="※ include-missing を使った後は Mirror 側で create-missing も ON に",
-                  foreground="#999").pack(anchor="w")
         ttk.Label(parent,
                   text="※ SRC/DST のパスは .env (STAR_RATE_SYNC_SRC_ROOT / _DST_ROOT) で設定",
                   foreground="#999").pack(anchor="w")
 
     def _build_files_tab(self, parent: ttk.Frame) -> None:
+        self._add_cli_hint(
+            parent,
+            "sync_files.py",
+            "iTunes と MusicBee のファイル本体 (mtime/size) を比較します",
+            "apply OFF で差分確認 → ON で changed_files.txt / orphan_files.txt 出力",
+        )
         ttk.Label(parent,
-                  text="SRC と DST のファイル本体を比較し、新規/更新を",
-                  foreground="#555").pack(anchor="w")
-        ttk.Label(parent,
-                  text="changed_files.txt に追記します (評価には触りません)",
+                  text="評価には触りません。追記後は コピー タブで反映してください",
                   foreground="#555").pack(anchor="w", pady=(0, 8))
 
         # 既定は dry-run (apply OFF)。
@@ -357,10 +382,13 @@ class App:
                         variable=self.var_files_no_include_updated).pack(anchor="w")
 
         ttk.Label(parent,
-                  text="※ apply 後は Mirror タブで create-missing ON にして実行",
+                  text="※ apply 後は コピー タブ (mirror_changed.py) で create-missing ON にして実行",
                   foreground="#999").pack(anchor="w", pady=(8, 0))
         ttk.Label(parent,
-                  text="※ 孤児 (SRCに無し) は orphan_files.txt に書き出し、削除はしません",
+                  text="※ 孤児 (SRCに無し) は orphan_files.txt に書き出し (自動削除はしません)",
+                  foreground="#999").pack(anchor="w")
+        ttk.Label(parent,
+                  text="※ 内容完全一致の重複削除は CLI: py cleanup_duplicates.py (GUI未対応)",
                   foreground="#999").pack(anchor="w")
         ttk.Label(parent,
                   text="※ SRC/DST のパスは .env で設定",

@@ -28,5 +28,9 @@ env/
 # IDE / OS
 .vscode/
 .idea/
+.cursor/
 .DS_Store
 Thumbs.db
+
+# ローカル調査レポート (cleanup 実行時の出力)
+reports/
