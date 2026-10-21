@@ -49,6 +49,7 @@ STAR_RATE_SYNC_DST_ROOT=C:\Users\YOUR_NAME\Music\MusicBee\Music
 
 `start_gui.pyw` をダブルクリックすると Tkinter のウィンドウが立ち上がる。タブは 2 階層:
 
+- **普段の運用**: 書込、ファイル差分、コピーを続けて実行
 - **評価同期**: Sync / Mirror / Verify / Repair
 - **ファイル同期**: Files
 
@@ -62,6 +63,11 @@ STAR_RATE_SYNC_DST_ROOT=C:\Users\YOUR_NAME\Music\MusicBee\Music
 各ステップで「dry-run を一度実行 → 出力確認 → 本番実行」を挟むのが安全。
 
 ##### A. 普段の運用 (評価 + ファイル本体を両方同期)
+
+GUI なら `[普段の運用] > まとめて` で同じ 3 段階を実行できる。
+apply は初期 OFF。件数を見てから ON にする。
+
+段階を分ける場合:
 
 1. iTunes を起動しておく
 2. `[評価同期] > Sync` タブ → dry-run のまま「▶ 実行」→ 件数確認 → dry-run チェックを外して再実行
@@ -94,7 +100,16 @@ STAR_RATE_SYNC_DST_ROOT=C:\Users\YOUR_NAME\Music\MusicBee\Music
 
 #### A. 普段の運用 (評価 + ファイル本体を両方同期)
 
-評価変更、新曲追加、タグ編集、を一気に MusicBee へ反映。
+評価変更、新曲追加、タグ編集、を一気に MusicBee へ反映する。
+次の 1 コマンドが、下の 3 段階 (書込 → ファイル差分 → コピー) を順に実行する。
+途中で失敗したらそこで止まる。既定は dry-run。
+
+```powershell
+py sync_routine.py            # 確認
+py sync_routine.py --apply    # 本番
+```
+
+段階を分けて実行する場合:
 
 ```powershell
 # 1. iTunes を起動しておく
@@ -151,6 +166,7 @@ py mirror_changed.py --create-missing
 
 ```
 star_rate_sync/
+├── sync_routine.py        # 書込 → ファイル差分 → コピー
 ├── sync_ratings.py        # iTunes -> ファイルタグ同期
 ├── mirror_changed.py      # 変更ファイルを別フォルダへミラーコピー
 ├── verify_tags.py         # 書き込み済みタグの読み戻し検証
@@ -162,6 +178,7 @@ star_rate_sync/
 │   ├── diff.py            # 評価の差分判定
 │   ├── file_diff.py       # ファイル本体の差分判定 (mtime+size)
 │   ├── paths.py           # src -> dst のパス変換
+│   ├── routine.py         # 普段の運用の実行順
 │   ├── state.py           # sync_state.json の load/save
 │   ├── changed_list.py    # changed_files.txt の I/O とマージ
 │   ├── tagging.py         # MP3 / M4A への rating 書き込み
