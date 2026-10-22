@@ -17,6 +17,10 @@ iTunes COM 経由で星評価を読み、各曲の物理タグへ書き込む。
 | `--changed-out PATH` | 変更ファイル一覧の出力先 (既定: `changed_files.txt`) |
 | `--detail` | rating 遷移マップ (`★n → ★m が何曲`) も表示する |
 
+半星 (10 / 30 / 50 / 70 / 90) など `0, 20, 40, 60, 80, 100` 以外の評価は書き込まない。未評価のタグとしては残さない。件数は「半星(非対応)」に出る。
+
+評価が同じでファイルの場所だけ変わった曲は、タグを書き直さない。`sync_state.json` のパスを新しい場所に更新し、`changed_files.txt` に追加する。古いコピー先は削除しない。
+
 `--resume` は廃止。`sync_state.json` による差分検出が常時 ON のため、同じ役目がデフォルト動作に吸収されている。
 
 ## `mirror_changed.py`
@@ -30,6 +34,7 @@ iTunes COM 経由で星評価を読み、各曲の物理タグへ書き込む。
 | `--list PATH` | `changed_files.txt` | コピー対象ファイル一覧 |
 | `--dry-run` | off | コピーせず予定だけ表示 |
 | `--create-missing` | off | コピー先に同名ファイルが無くても、親フォルダごと作って新規コピーする |
+| `--allow-missing-list` | off | 一覧ファイルが無くてもエラーにせず、0 件として続行する。ファイルは作らない |
 
 パスの解決順:
 
@@ -38,6 +43,17 @@ iTunes COM 経由で星評価を読み、各曲の物理タグへ書き込む。
 3. それも未指定ならエラー (exit code 2)
 
 > **デフォルト動作**: コピー先にファイルが無い場合は **スキップしてログに残す** (=「フォルダ構造のズレ」を検出しやすい)。新規大量コピーしたい時のみ `--create-missing` を指定。
+
+## `sync_routine.py`
+
+普段の運用 (書込 → ファイル差分 → コピー) を 1 回で実行する。既定は dry-run。
+
+| オプション | 説明 |
+|---|---|
+| (なし) | `sync_ratings.py --dry-run`、`sync_files.py`、`mirror_changed.py --dry-run --create-missing --allow-missing-list` の順 |
+| `--apply` | `sync_ratings.py`、`sync_files.py --apply`、`mirror_changed.py --create-missing` の順。本番 |
+
+いずれかの段階が終了コード 0 以外で終わったら、残りは実行しない。
 
 ## `repair_mirror.py`
 
@@ -109,14 +125,16 @@ iTunes COM 経由で星評価を読み、各曲の物理タグへ書き込む。
 
 ## 差分検出の仕組み (`sync_ratings.py`)
 
-実行のたびに、各曲を次の 4 通りに分類する。
+実行のたびに、各曲を次のように分類する。
 
 | 分類 | 条件 | 動作 |
 |---|---|---|
 | `new` | 前回 state に無し（または `rating == 0`）で、iTunes 側が 1 以上 | タグへ書き込み、`changed_files.txt` に追加 |
 | `modified` | 前回値と異なる（双方 1 以上） | タグへ上書き、`changed_files.txt` に追加 |
 | `removed` | 前回 1 以上、iTunes 側で 0 (=星を外した) | タグを削除し state からも削除、`changed_files.txt` に追加 |
-| `none` | 変化なし | 何もしない |
+| `none` | 変化なし | 何もしない。ただしパスだけ変わっていれば `moved` |
+| `moved` | 評価は同じで、記録しているパスと現在のパスが違う | タグは書き直さない。state のパスを更新し、`changed_files.txt` に追加 |
+| (対象外) | 評価が 0/20/40/60/80/100 以外 | 半星などは書き込まない。state も変えない |
 
 これにより、二回目以降の実行は **iTunes 側で変わった曲だけ** 触る。MusicBee 側へのコピー量も最小限になる。
 

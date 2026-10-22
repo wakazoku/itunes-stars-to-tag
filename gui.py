@@ -1,6 +1,6 @@
 """star_rate_sync の GUI ランチャー。
 
-既存 CLI (sync_ratings.py / mirror_changed.py / verify_tags.py) を
+既存 CLI (sync_routine.py / sync_ratings.py / mirror_changed.py / verify_tags.py) を
 ``subprocess`` 経由で実行し、出力をウィンドウ内のテキスト領域に
 リアルタイムで流す Tkinter アプリケーション。
 
@@ -28,6 +28,21 @@ ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 # Windows で subprocess を呼ぶ際、子プロセスの黒いコンソールウィンドウを
 # 出さないためのフラグ。Linux / macOS では 0 (=何もしない)。
 CREATE_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
+
+
+def cli_python() -> str:
+    """CLI サブプロセス用の Python。
+
+    ``start_gui.pyw`` だと ``sys.executable`` は pythonw.exe になる。
+    pythonw の子は標準エラーが None になり、tqdm が起動直後に落ちる。
+    コンソール無しの python.exe を使う (窓は ``CREATE_NO_WINDOW`` で出さない)。
+    """
+    exe = sys.executable
+    if exe.lower().endswith("pythonw.exe"):
+        console = exe[: -len("pythonw.exe")] + "python.exe"
+        if os.path.isfile(console):
+            return console
+    return exe
 
 # 子プロセスからの 1 サイクルあたりの読み出し間隔 (ms)。
 # 短いほどリアルタイム性が上がるが、CPU を食う。
@@ -203,6 +218,9 @@ class App:
         self.var_files_no_include_new = tk.BooleanVar(value=False)
         self.var_files_no_include_updated = tk.BooleanVar(value=False)
 
+        # 普段の運用は 3 段階をまとめて実行する。既定は dry-run。
+        self.var_routine_apply = tk.BooleanVar(value=False)
+
         # ---- UI 構築 ----
         self._build_notebook()
         self._build_run_row()
@@ -226,7 +244,9 @@ class App:
 
         # 平坦に並べた spec のリスト (互換用)。
         # 評価同期グループ + ファイル同期グループの順で並べる。
-        self.tabs: List[TabSpec] = [
+        routine_spec = TabSpec("まとめて", "sync_routine.py",
+                               self._build_routine_tab, self._compose_routine_argv)
+        rating_specs = [
             TabSpec("書込", "sync_ratings.py",
                     self._build_sync_tab, self._compose_sync_argv),
             TabSpec("コピー", "mirror_changed.py",
@@ -236,15 +256,14 @@ class App:
             TabSpec("救出", "repair_mirror.py",
                     self._build_repair_tab, self._compose_repair_argv),
         ]
-
-        # ファイル同期用の spec (評価には触らないジョブ)
         files_spec = TabSpec("差分", "sync_files.py",
                              self._build_files_tab, self._compose_files_argv)
-        self.tabs.append(files_spec)
+        self.tabs = [routine_spec, *rating_specs, files_spec]
 
         # グループ定義: (外側タブのラベル, そのグループに属する TabSpec のリスト)
         self.tab_groups: List[tuple[str, List[TabSpec]]] = [
-            ("評価同期", self.tabs[:4]),
+            ("普段の運用", [routine_spec]),
+            ("評価同期", rating_specs),
             ("ファイル同期", [files_spec]),
         ]
 
@@ -284,6 +303,29 @@ class App:
             foreground="#999",
             wraplength=680,
         ).pack(anchor="w", pady=(0, 8))
+
+    def _build_routine_tab(self, parent: ttk.Frame) -> None:
+        self._add_cli_hint(
+            parent,
+            "sync_routine.py",
+            "評価の書き込み、ファイル差分、MusicBee へのコピーを続けて実行します",
+            "apply OFF で 3 段階の dry-run → ON にして本番",
+        )
+        ttk.Checkbutton(
+            parent,
+            text="apply (書込・差分の追記・コピーを本番実行。OFF なら dry-run)",
+            variable=self.var_routine_apply,
+        ).pack(anchor="w")
+        ttk.Label(
+            parent,
+            text="※ コピーは新規ファイルも作成します (create-missing)",
+            foreground="#999",
+        ).pack(anchor="w", pady=(8, 0))
+        ttk.Label(
+            parent,
+            text="※ 途中で失敗したら、そこで止まります",
+            foreground="#999",
+        ).pack(anchor="w")
 
     def _build_sync_tab(self, parent: ttk.Frame) -> None:
         self._add_cli_hint(
@@ -439,8 +481,14 @@ class App:
                   foreground="#555").pack(side="left")
 
     # ---- argv 構築 ----
+    def _compose_routine_argv(self) -> List[str]:
+        argv = [cli_python(), "-u", "sync_routine.py"]
+        if self.var_routine_apply.get():
+            argv.append("--apply")
+        return argv
+
     def _compose_sync_argv(self) -> List[str]:
-        argv = [sys.executable, "-u", "sync_ratings.py"]
+        argv = [cli_python(), "-u", "sync_ratings.py"]
         if self.var_sync_dry_run.get():
             argv.append("--dry-run")
         if self.var_sync_force_all.get():
@@ -453,7 +501,7 @@ class App:
         return argv
 
     def _compose_mirror_argv(self) -> List[str]:
-        argv = [sys.executable, "-u", "mirror_changed.py"]
+        argv = [cli_python(), "-u", "mirror_changed.py"]
         if self.var_mirror_dry_run.get():
             argv.append("--dry-run")
         if self.var_mirror_create_missing.get():
@@ -461,14 +509,14 @@ class App:
         return argv
 
     def _compose_verify_argv(self) -> List[str]:
-        argv = [sys.executable, "-u", "verify_tags.py"]
+        argv = [cli_python(), "-u", "verify_tags.py"]
         limit = self.var_verify_limit.get()
         if limit > 0:
             argv += ["--limit", str(limit)]
         return argv
 
     def _compose_repair_argv(self) -> List[str]:
-        argv = [sys.executable, "-u", "repair_mirror.py"]
+        argv = [cli_python(), "-u", "repair_mirror.py"]
         if self.var_repair_apply.get():
             argv.append("--apply")
         if self.var_repair_include_missing.get():
@@ -476,7 +524,7 @@ class App:
         return argv
 
     def _compose_files_argv(self) -> List[str]:
-        argv = [sys.executable, "-u", "sync_files.py"]
+        argv = [cli_python(), "-u", "sync_files.py"]
         if self.var_files_apply.get():
             argv.append("--apply")
         if self.var_files_no_include_new.get():
@@ -499,6 +547,21 @@ class App:
 
         # 破壊力の大きい操作 (force-all を本番実行) は確認ダイアログを挟む。
         # dry-run が併用されている場合は実害が無いので素通り。
+        if spec.script == "sync_routine.py" and self.var_routine_apply.get():
+            ok = messagebox.askokcancel(
+                title="普段の運用を本番実行しますか？",
+                message=(
+                    "星評価の書き込み、ファイル差分の追記、MusicBee へのコピーを\n"
+                    "続けて実行します。コピー先に無いファイルも新規作成します。\n\n"
+                    "実行してよろしいですか？"
+                ),
+                icon=messagebox.WARNING,
+                default=messagebox.CANCEL,
+            )
+            if not ok:
+                self._append_output("[info] 普段の運用をキャンセルしました\n")
+                return
+
         if (
             spec.script == "sync_ratings.py"
             and self.var_sync_force_all.get()

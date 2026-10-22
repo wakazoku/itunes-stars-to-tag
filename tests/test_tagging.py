@@ -15,6 +15,8 @@ from starcore.tagging import (
     SUPPORTED_MP3,
     SUPPORTED_MP4,
     UnsupportedExtensionError,
+    UnsupportedRatingError,
+    is_supported_rating,
     write_rating,
 )
 
@@ -32,6 +34,20 @@ class TestUnsupportedExtensionGuards:
     def test_no_extension_raises_before_io(self):
         with pytest.raises(UnsupportedExtensionError):
             write_rating(r"C:\not\exist\noext", 60)
+
+    @pytest.mark.parametrize("rating", [10, 30, 50, 70, 90, 1, 255])
+    def test_half_star_raises_before_io(self, rating):
+        """半星を未評価タグとして書き込まない。ファイルは開かない。"""
+        with pytest.raises(UnsupportedRatingError):
+            write_rating(r"C:\not\exist\dummy.mp3", rating)
+
+    @pytest.mark.parametrize("rating", [0, 20, 40, 60, 80, 100])
+    def test_whole_star_ratings_are_supported(self, rating):
+        assert is_supported_rating(rating)
+
+    @pytest.mark.parametrize("rating", [10, 30, 50, 70, 90])
+    def test_half_star_ratings_are_not_supported(self, rating):
+        assert not is_supported_rating(rating)
 
 
 class TestITunesToPopmMapping:

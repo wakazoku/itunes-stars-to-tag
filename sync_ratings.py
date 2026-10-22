@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import argparse
 import logging
+import sys
 from pathlib import Path
 
 import win32com.client
@@ -22,6 +23,7 @@ from starcore import aggregate
 from starcore import changed_list
 from starcore import diff
 from starcore import display
+from starcore import paths
 from starcore import state as state_mod
 from starcore import tagging
 
@@ -87,7 +89,8 @@ def main() -> None:
 
     stats = {
         "new": 0, "modified": 0, "removed": 0,
-        "none": 0, "skipped": 0, "failed": 0,
+        "moved": 0, "none": 0, "unsupported": 0,
+        "skipped": 0, "failed": 0,
     }
     by_ext: dict[str, int] = {}
     by_star: dict[int, int] = {}                       # 書き込み後の星別件数 (rating>0 のみ)
@@ -95,7 +98,10 @@ def main() -> None:
     changed_paths: list[str] = []
 
     try:
-        for i in tqdm(range(1, total + 1), desc="sync", unit="track"):
+        # pythonw では sys.stderr が None のことがある。そのとき tqdm は
+        # 進捗を書こうとして即落ちるので、書ける方へ出す。
+        bar_out = sys.stderr if sys.stderr is not None else sys.stdout
+        for i in tqdm(range(1, total + 1), desc="sync", unit="track", file=bar_out):
             try:
                 track = tracks.Item(i)
 
@@ -125,6 +131,14 @@ def main() -> None:
                 if ext not in tagging.SUPPORTED_MP3 and ext not in tagging.SUPPORTED_MP4:
                     stats["skipped"] += 1
                     continue
+                if not tagging.is_supported_rating(rating):
+                    # 半星は POPM に落とすと未評価として誤記される。書かずに数だけ出す。
+                    stats["unsupported"] += 1
+                    if not args.dry_run:
+                        logging.info(
+                            f"unsupported-rating: {rating} {track.Name} :: {path}"
+                        )
+                    continue
 
                 if args.force_all:
                     verdict = "new" if rating > 0 else "none"
@@ -132,6 +146,23 @@ def main() -> None:
                     verdict = diff.classify(state.get(pid), rating)
 
                 if verdict == "none":
+                    if rating > 0 and not args.force_all:
+                        prev_entry = state.get(pid) or {}
+                        prev_path = prev_entry.get("path")
+                        move = paths.relocation(prev_path, path)
+                        if move == "moved":
+                            # 評価はファイルに付いたまま移動している。タグは書き直さず、
+                            # 新しい場所をコピー対象にする。古いコピーは削除しない。
+                            stats["moved"] += 1
+                            prefix = "[dry-run] moved" if args.dry_run else "[moved]"
+                            tqdm.write(f"{prefix} {rating // 20}star {ext} {track.Name}")
+                            if not args.dry_run:
+                                logging.info(f"moved: {prev_path} -> {path}")
+                                state[pid] = {"rating": rating, "path": path}
+                                changed_paths.append(path)
+                            continue
+                        if move == "fill" and not args.dry_run:
+                            state[pid]["path"] = path
                     stats["none"] += 1
                     continue
 
@@ -189,6 +220,7 @@ def main() -> None:
             changed_list.write_paths(changed_out_path, merged_paths)
 
     changed_total = stats["new"] + stats["modified"] + stats["removed"]
+    queued_total = changed_total + stats["moved"]
     result_label = "書き込み予定:" if args.dry_run else "書き込み成功:"
     print()
     display.print_line(display.status_mark(changed_total, "result"),
@@ -196,7 +228,12 @@ def main() -> None:
     display.print_tree_line("新規評価:", stats["new"])
     display.print_tree_line("評価変更:", stats["modified"])
     display.print_tree_line("評価削除:", stats["removed"], last=True)
+    display.print_line(display.NEUTRAL_MARK, "場所変更:", stats["moved"],
+                       note="タグはそのまま、コピー対象")
     display.print_line(display.NEUTRAL_MARK, "変化なし:", stats["none"])
+    display.print_line(display.status_mark(stats["unsupported"], "warn"),
+                       "半星(非対応):", stats["unsupported"],
+                       note="書き込まない")
     display.print_line(display.NEUTRAL_MARK, "対象外:", stats["skipped"],
                        note="未評価・自動評価・クラウド等")
     display.print_line(display.status_mark(stats["failed"], "error"),
@@ -249,13 +286,13 @@ def main() -> None:
             )
         except FileNotFoundError:
             final_lines = 0
-        if final_lines == changed_total:
+        if final_lines == queued_total:
             changed_note = f"(変更ファイル一覧、{final_lines:,} 行)"
         else:
-            carried = final_lines - changed_total
+            carried = final_lines - queued_total
             changed_note = (
                 f"(変更ファイル一覧、{final_lines:,} 行 "
-                f"= 今回 {changed_total:,} + 前回未処理 {carried:,})"
+                f"= 今回 {queued_total:,} + 前回未処理 {carried:,})"
             )
         display.print_kv_section("出力ファイル", [
             (STATE_FILE, "(差分検知用 state)"),

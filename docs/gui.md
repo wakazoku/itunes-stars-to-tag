@@ -123,6 +123,7 @@ UI 構築 + イベントハンドラ。
   `replace("\r", "\n").splitlines()` で噛み砕いてからキューに入れる。
   もし生 tqdm を綺麗に再現したくなったらこの辺りを書き換えるか、
   CLI 側で `TQDM_DISABLE=1` を渡してテキストモードに固定する。
+- **普段の運用**: 外側の先頭タブ。`sync_routine.py` を 1 本実行し、書込、ファイル差分、コピーを続ける。apply は初期 OFF。ON で本番実行するときは確認ダイアログを出す。
 - **`force-all` の確認ダイアログ**: `Sync` タブで `force-all` を ON のまま
   本番実行 (dry-run OFF) しようとした場合のみ、`tkinter.messagebox` で
   確認を入れる。dry-run 併用なら実害が無いので素通り。

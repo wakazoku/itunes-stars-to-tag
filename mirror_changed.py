@@ -54,6 +54,8 @@ def main() -> None:
                         help="コピーせず予定だけ表示")
     parser.add_argument("--create-missing", action="store_true",
                         help="コピー先が存在しないときも親フォルダごと作って新規コピーする")
+    parser.add_argument("--allow-missing-list", action="store_true",
+                        help="一覧ファイルが無くてもエラーにせず、0件として続行する")
     args = parser.parse_args()
 
     src_root = args.src_root or os.environ.get(ENV_SRC_ROOT)
@@ -68,14 +70,17 @@ def main() -> None:
 
     list_path = Path(args.list)
     if not list_path.exists():
-        print(f"[error] {list_path} が見つかりません。先に sync_ratings.py を実行してください。")
-        sys.exit(1)
-
-    src_lines = [
-        line.strip()
-        for line in list_path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+        if not args.allow_missing_list:
+            print(f"[error] {list_path} が見つかりません。先に sync_ratings.py を実行してください。")
+            sys.exit(1)
+        print(f"[info] {list_path} が無いため、コピー対象 0 件として続行します")
+        src_lines = []
+    else:
+        src_lines = [
+            line.strip()
+            for line in list_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
 
     title = "変更ファイル ミラーコピー"
     if args.dry_run:

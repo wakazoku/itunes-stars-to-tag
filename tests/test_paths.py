@@ -5,7 +5,7 @@ import os
 
 import pytest
 
-from starcore.paths import to_mirror
+from starcore.paths import relocation, same_location, to_mirror
 
 
 SRC_ROOT = r"C:\Users\wakaz\Music\iTunes\iTunes Media\Music"
@@ -49,6 +49,20 @@ def test_trailing_separator_in_root_is_tolerated():
 def test_src_equals_root_returns_none():
     """src が root そのものだとミラー先を確定できないので None を返す。"""
     assert to_mirror(SRC_ROOT, SRC_ROOT, DST_ROOT) is None
+
+
+def test_same_location_ignores_case_and_separators():
+    assert same_location(r"C:\Music\A.mp3", "C:/music/a.mp3")
+    assert not same_location(r"C:\Music\A.mp3", r"C:\Music\B.mp3")
+
+
+def test_relocation_same_fill_and_moved():
+    current = r"C:\Music\Artist\song.mp3"
+    assert relocation(current, current) == "same"
+    assert relocation("C:/music/artist/song.mp3", current) == "same"
+    assert relocation(None, current) == "fill"
+    assert relocation("", current) == "fill"
+    assert relocation(r"D:\Old\song.mp3", current) == "moved"
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows パス前提のテスト")
