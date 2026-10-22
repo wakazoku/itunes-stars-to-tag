@@ -27,15 +27,32 @@ docs/gui.md       … この文書
 を出さずに GUI だけを立ち上げる拡張子。中身は `from gui import main` を
 呼ぶだけのワンライナー。
 
-## 3. アーキテクチャ
+## 3. タブ構成 (2026-07 時点)
+
+外側 Notebook で **評価同期** / **ファイル同期** を切り替え、内側で操作タブを選ぶ。
+
+| タブ (GUI) | CLI | 概要 |
+|---|---|---|
+| まとめて | `sync_routine.py` | 書込、ファイル差分、コピーを続ける |
+| 書込 | `sync_ratings.py` | iTunes 星評価 → ファイルタグ |
+| コピー | `mirror_changed.py` | `changed_files.txt` を MusicBee へコピー |
+| 検証 | `verify_tags.py` | タグ書き込み結果の照合 |
+| 救出 | `repair_mirror.py` | MusicBee タグズレの救出 |
+| 差分 | `sync_files.py` | ファイル本体 (mtime+size) の差分検出 |
+
+各タブ上部に日本語の概要・`CLI: py ...`・操作の目安を表示。実行ログ欄にも実際の argv が出る。
+
+**GUI 未対応**: `cleanup_duplicates.py` (孤児・重複のリスト削除)。差分タブ脚注に CLI 名のみ記載。
+
+## 4. アーキテクチャ
 
 ```
 ┌────────────────────────────────────────────┐
 │ メインスレッド (Tk mainloop)               │
 │                                            │
-│  Notebook ─┬─ Sync タブ (オプション群)     │
-│            ├─ Mirror タブ                  │
-│            └─ Verify タブ                  │
+│  [普段の運用] ─ まとめて                   │
+│  [評価同期] ─┬─ 書込 / コピー / 検証 / 救出│
+│  [ファイル同期] ─ 差分                     │
 │                                            │
 │  [▶ 実行] / [■ 停止] / [クリア]            │
 │                                            │
@@ -81,7 +98,7 @@ Tcl_AsyncDelete が出たり)。ワーカースレッドから直接 `text.inser
 ので、`queue.Queue` (スレッドセーフ) に行を投げ、メインスレッドが受け取って
 ウィジェットを更新する。
 
-## 4. 主要クラス
+## 5. 主要クラス
 
 ### `CommandRunner` (gui.py)
 
@@ -112,7 +129,7 @@ UI 構築 + イベントハンドラ。
 3. `_compose_xxx_argv` を 1 つ書く (argv を組み立てるだけ)
 4. `self.tabs` に `TabSpec(...)` を 1 行足す
 
-## 5. デザイン上の小ネタ
+## 6. デザイン上の小ネタ
 
 - **絵文字フォント**: 既定フォントを `Segoe UI Emoji` にしている。
   これがないと `✅ ❌ ★` が豆腐になる。Linux で動かすときは
@@ -124,7 +141,7 @@ UI 構築 + イベントハンドラ。
   もし生 tqdm を綺麗に再現したくなったらこの辺りを書き換えるか、
   CLI 側で `TQDM_DISABLE=1` を渡してテキストモードに固定する。
 - **普段の運用**: 外側の先頭タブ。`sync_routine.py` を 1 本実行し、書込、ファイル差分、コピーを続ける。apply は初期 OFF。ON で本番実行するときは確認ダイアログを出す。
-- **`force-all` の確認ダイアログ**: `Sync` タブで `force-all` を ON のまま
+- **`force-all` の確認ダイアログ**: **書込** タブで `force-all` を ON のまま
   本番実行 (dry-run OFF) しようとした場合のみ、`tkinter.messagebox` で
   確認を入れる。dry-run 併用なら実害が無いので素通り。
 - **「停止」ボタン**: `process.terminate()` を呼ぶだけの強制終了。
@@ -136,8 +153,9 @@ UI 構築 + イベントハンドラ。
   子プロセスを kill してから `destroy()` する。子プロセスが
   ぶら下がるのを防ぐため。
 
-## 6. 拡張案メモ
+## 7. 拡張案メモ
 
+- **ライブラリ整理タブ**: 孤児検出・重複検出 (`find_duplicates.py`)・`cleanup_duplicates.py` 呼び出しを1画面に。`.cursor/rules/library-cleanup-backlog.mdc` 参照
 - **ログを `sync_log.txt` 等のファイルにも吐く**: `_append_output` で
   Text に書くついでに `open(..., "a")` で同じ内容を書き込めばよい。
 - **進捗バー (`ttk.Progressbar`)**: 現状 CLI 出力からは件数を抜きにくい。

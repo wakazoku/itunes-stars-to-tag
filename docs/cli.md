@@ -73,7 +73,10 @@ iTunes COM 経由で星評価を読み、各曲の物理タグへ書き込む。
 
 **評価とは独立** に、SRC と DST のファイル本体を **mtime + size** で比較し、`new` (DST に無い) と `updated` (mtime/size が違う) を `changed_files.txt` に追記する。あとは `mirror_changed.py --create-missing` で実コピーすれば、星評価が付いていない曲も含めて MusicBee 側に揃う。
 
-孤児 (DST にあるが SRC に無いファイル) は **削除せず** `orphan_files.txt` にレポートのみ。
+孤児 (DST にあるが SRC に**同じ相対パス**が無いファイル) は **削除せず** `orphan_files.txt` にレポートのみ。
+削除する場合は `cleanup_duplicates.py --from-list orphan_files.txt --apply` を使う。
+
+> **孤児と重複の違い**: 本ツールの orphan はパス比較のみ。**内容がバイト完全一致する重複** (別パスに同じ曲が2つ) は検出しない。重複検出は `find_duplicates.py` (未実装) を想定。詳細は [internals.md](internals.md)。
 
 | オプション | 既定値 | 説明 |
 |---|---|---|
@@ -93,7 +96,33 @@ iTunes COM 経由で星評価を読み、各曲の物理タグへ書き込む。
 - **mtime 違い (許容超過)** → 内容が違う疑い (updated)
 - mtime 許容秒数はファイルシステムまたぎの誤差吸収用
 
-> rsync のデフォルト判定方式と同じ発想。ハッシュ比較ではないので「同じ mtime/size で中身だけ違う」極めて稀なケースは検出できない点に注意。
+> rsync のデフォルト判定方式と同じ発想。ハッシュ比較ではないので次は検出できない:
+> - 同じ mtime/size で中身だけ違う (極めて稀)
+> - **別パスに同じ内容のファイルが2つある** (重複) → `cleanup_duplicates.py` + 重複リスト
+
+## `cleanup_duplicates.py`
+
+テキストファイル (1行 = 1 ファイルの絶対パス) に列挙された MusicBee 側ファイルを削除する。
+**リストの生成 (孤児検出・重複検出) は行わない。**
+
+| オプション | 既定値 | 説明 |
+|---|---|---|
+| `--from-list PATH` | `reports/duplicate_delete_candidates.txt` | 削除対象の絶対パス一覧 |
+| `--log-out PATH` | `reports/deleted_duplicates.log` | 削除ログ (`--apply` 時のみ) |
+| `--apply` | off | OFF なら dry-run (存在確認と件数表示のみ) |
+
+典型的な使い方:
+
+```powershell
+# 孤児 (sync_files.py が出力したリスト)
+py cleanup_duplicates.py --from-list orphan_files.txt
+py cleanup_duplicates.py --from-list orphan_files.txt --apply
+
+# 内容完全一致の重複 (リストは別途用意。find_duplicates.py は未実装)
+py cleanup_duplicates.py --from-list reports/duplicate_delete_candidates.txt --apply
+```
+
+破壊的操作のため、必ず dry-run で件数確認してから `--apply` する。
 
 ## `verify_tags.py`
 
@@ -116,7 +145,9 @@ iTunes COM 経由で星評価を読み、各曲の物理タグへ書き込む。
 | `sync_state.json` | `sync_ratings.py` | PID → `{ rating, path }`。差分判定のための「前回値」 |
 | `sync_state.json.broken` | `sync_ratings.py` | JSON が破損していた場合の自動退避先 |
 | `changed_files.txt` | `sync_ratings.py` / `mirror_changed.py` / `repair_mirror.py` / `sync_files.py` | 変更があった曲の絶対パス一覧。`sync_ratings.py` は **既存内容に追記マージ** (`--force-all` のときのみ上書き)、`mirror_changed.py` の本番実行後はコピー成功ぶんが取り除かれる、`repair_mirror.py --apply` / `sync_files.py --apply` はズレ・差分のあるパスを追記する |
-| `orphan_files.txt` | `sync_files.py` | DST 側にあるが SRC 側に無いファイルの一覧。レポートのみで削除は行われない |
+| `orphan_files.txt` | `sync_files.py` | DST 側にあるが SRC 側に**同パス**が無いファイル。削除は `cleanup_duplicates.py` |
+| `reports/*.txt` | 手動 / 将来の `find_duplicates.py` | 重複削除候補リスト等 (`.gitignore` で無視) |
+| `reports/deleted_*.log` | `cleanup_duplicates.py --apply` | 削除実行ログ |
 | `sync_log.txt` | `sync_ratings.py` | スキップ・失敗の詳細ログ |
 | `mirror_log.txt` | `mirror_changed.py` | コピー失敗・コピー先不在の詳細ログ |
 | `verify_output.txt` | `verify_tags.py` | タグ読み戻し検証結果 |

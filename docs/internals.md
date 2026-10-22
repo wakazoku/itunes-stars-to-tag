@@ -38,6 +38,18 @@ Value: "0"〜"100" の文字列を UTF-8 でバイト化  (rating=0 ではアト
 
 `shutil.copy2` は mtime を保存するため、コピー直後の DST.mtime == SRC.mtime となる。これにより、評価変更やタグ編集で SRC.mtime が動いた曲だけが `updated` として検出される設計。
 
+## 孤児と重複 (ライブラリ整理)
+
+iTunes の「ライブラリの整理」後、MusicBee 側だけ曲数が増えることがある。原因は次の2種類で、**別機能**として扱う。
+
+| 概念 | 定義 | 検出 | 削除 |
+|------|------|------|------|
+| **孤児** | DST にあり、SRC に**同じ相対パス**が無い | `sync_files.py` → `orphan_files.txt` | `cleanup_duplicates.py --from-list orphan_files.txt --apply` |
+| **重複** | DST 内で**内容がバイト完全一致**のコピーが2つ以上 | 未実装 (`find_duplicates.py` 予定) | リスト + `cleanup_duplicates.py --apply` |
+
+SRC (iTunes) を正とする運用では、孤児は基本的に削除してよい。
+重複の典型例: 整理前 `Aimer\...\01 foo.m4a` が残り、整理後 `Aimer_\...\01 foo_.m4a` が SRC/DST 両方に存在。
+
 ## フィルタ条件（スキップ対象）
 
 `sync_ratings.py` で以下のいずれかに該当するトラックは処理されない。
@@ -72,6 +84,8 @@ Value: "0"〜"100" の文字列を UTF-8 でバイト化  (rating=0 ではアト
 | `PermissionError` | 他ソフトでファイル再生中、または同期中 | 再生停止、OneDrive 等の同期一時停止 |
 | `FileNotFoundError` | iTunes が認識するパスとファイル実体がズレている | iTunes でファイル位置を更新 |
 | MusicBee で星が反映されない | MusicBee のキャッシュ未更新 | MusicBee でライブラリ再スキャン |
+| MusicBee 側の曲数が iTunes より多い | iTunes 整理後に古いパスが DST に残っている (孤児・重複) | `sync_files.py` で孤児確認 → `cleanup_duplicates.py` で削除 |
+| 同じ曲が MusicBee で2回表示される | 別パスに同一内容のファイル (重複) | 重複リスト → `cleanup_duplicates.py --apply` (自動検出は未実装) |
 | MusicBee 側だけ評価が古いまま | `changed_files.txt` がリセットされた状態で mirror を流してしまった等 | `py repair_mirror.py` で検出 → `--apply` で追記 → `py mirror_changed.py` で再反映 |
 | `RatingKind` AttributeError | iTunes バージョンが古い | iTunes を最新版に更新 |
 | `mirror_changed.py` で大量の `NO-DST` | SRC_ROOT / DST_ROOT のフォルダ構造がズレている | `--src-root` / `--dst-root` を正しいルートに指定、または `--create-missing` |
@@ -93,6 +107,7 @@ Value: "0"〜"100" の文字列を UTF-8 でバイト化  (rating=0 ではアト
 - **アルバム評価は同期しない**: トラック評価のみ
 - **エラー時の自動リトライなし**: 失敗時は再実行 (state を見て差分のみ処理されるので無駄が少ない)
 - **大規模ライブラリでも比較的高速**: 11,900 曲規模のライブラリで約 1 分（実行環境により変動）
+- **重複の自動検出・GUI 整理タブは未実装**: 孤児検出は `sync_files.py`、削除は `cleanup_duplicates.py` のみ
 
 ## 関連リンク
 

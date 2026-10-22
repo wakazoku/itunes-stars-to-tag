@@ -204,16 +204,13 @@ class App:
 
         self.var_verify_limit = tk.IntVar(value=0)
 
-        # Repair タブは「state と DST 側タグを照合して、ズレを changed_files.txt
-        # に追記する」処理。dry-run が初期 ON、apply (=本番) が OFF。
+        # 救出タブ: state と DST 側タグを照合し、ズレを changed_files.txt に追記。
+        # include-missing ON 時は DST にまだ無い曲も追記 (コピー タブで create-missing 必須)。
         self.var_repair_apply = tk.BooleanVar(value=False)
-        # include-missing を ON にすると、DST 側にまだファイルが無い曲 (新規コピー対象)
-        # も changed_files.txt に追記される。Mirror 側で --create-missing 必須。
         self.var_repair_include_missing = tk.BooleanVar(value=False)
 
-        # Files タブは「SRC と DST のファイル本体を mtime+size で比較し、
-        # 新規/更新を changed_files.txt に追記、孤児はレポート」する処理。
-        # 評価には触らない。
+        # 差分タブ: SRC/DST のファイル本体を mtime+size で比較し、
+        # 新規/更新を changed_files.txt に追記。孤児は orphan_files.txt へ (削除は別 CLI)。
         self.var_files_apply = tk.BooleanVar(value=False)
         self.var_files_no_include_new = tk.BooleanVar(value=False)
         self.var_files_no_include_updated = tk.BooleanVar(value=False)

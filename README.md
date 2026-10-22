@@ -50,8 +50,10 @@ STAR_RATE_SYNC_DST_ROOT=C:\Users\YOUR_NAME\Music\MusicBee\Music
 `start_gui.pyw` をダブルクリックすると Tkinter のウィンドウが立ち上がる。タブは 2 階層:
 
 - **普段の運用**: 書込、ファイル差分、コピーを続けて実行
-- **評価同期**: Sync / Mirror / Verify / Repair
-- **ファイル同期**: Files
+- **評価同期**: 書込 / コピー / 検証 / 救出
+- **ファイル同期**: 差分
+
+各タブ内に `CLI: py ...` の一行と操作の目安が表示される。旧称との対応: 書込=`sync_ratings.py`、コピー=`mirror_changed.py`、検証=`verify_tags.py`、救出=`repair_mirror.py`、差分=`sync_files.py`。
 
 書き込み系タブは初期状態で **dry-run が ON**。一度確認してからチェックを外して本番実行する。
 
@@ -70,31 +72,50 @@ apply は初期 OFF。件数を見てから ON にする。
 段階を分ける場合:
 
 1. iTunes を起動しておく
-2. `[評価同期] > Sync` タブ → dry-run のまま「▶ 実行」→ 件数確認 → dry-run チェックを外して再実行
-3. `[ファイル同期] > Files` タブ → 「▶ 実行」(dry-run) → 件数確認 → `apply` ON で再実行
-4. `[評価同期] > Mirror` タブ → `create-missing` ON、dry-run のまま「▶ 実行」→ dry-run チェックを外して再実行
+2. `[評価同期] > 書込` タブ → dry-run のまま「▶ 実行」→ 件数確認 → dry-run チェックを外して再実行
+3. `[ファイル同期] > 差分` タブ → 「▶ 実行」(dry-run) → 件数確認 → `apply` ON で再実行
+4. `[評価同期] > コピー` タブ → `create-missing` ON、dry-run のまま「▶ 実行」→ dry-run チェックを外して再実行
 5. MusicBee でライブラリ再スキャン
 
 ##### B. 評価だけ変えたとき
 
-1. `[評価同期] > Sync` → dry-run 確認 → 本番実行
-2. `[評価同期] > Mirror` → dry-run 確認 → 本番実行 (`create-missing` は OFF のままで OK)
+1. `[評価同期] > 書込` → dry-run 確認 → 本番実行
+2. `[評価同期] > コピー` → dry-run 確認 → 本番実行 (`create-missing` は OFF のままで OK)
 
 ##### C. iTunes に新曲を追加しただけ (評価変更なし)
 
-1. `[ファイル同期] > Files` → dry-run 確認 → `apply` ON で実行
-2. `[評価同期] > Mirror` → `create-missing` ON で実行
+1. `[ファイル同期] > 差分` → dry-run 確認 → `apply` ON で実行
+2. `[評価同期] > コピー` → `create-missing` ON で実行
 
 ##### D. MusicBee 側が古い気がする (救出)
 
-1. `[評価同期] > Repair` → dry-run のまま「▶ 実行」→ ズレ件数を確認
+1. `[評価同期] > 救出` → dry-run のまま「▶ 実行」→ ズレ件数を確認
 2. 同タブで `apply` ON + `include-missing` ON にして再実行
-3. `[評価同期] > Mirror` → `create-missing` ON で実行
+3. `[評価同期] > コピー` → `create-missing` ON で実行
 
 ##### E. 孤児 (DST にだけある曲) の精査
 
-`[ファイル同期] > Files` を `apply` ON で実行すると、リポジトリ直下に `orphan_files.txt` が生成される。
-中身を眺めて、不要ならエクスプローラで手動削除。自動削除はしない設計。
+`[ファイル同期] > 差分` を `apply` ON で実行すると、リポジトリ直下に `orphan_files.txt` が生成される。
+iTunes (SRC) に同じパスが無いファイルの一覧。**検出のみ**で、削除は自動では行わない。
+
+削除する場合 (iTunes が正とみなす運用):
+
+```powershell
+py cleanup_duplicates.py --from-list orphan_files.txt          # dry-run
+py cleanup_duplicates.py --from-list orphan_files.txt --apply  # 本番削除
+```
+
+##### F. iTunes 整理後の重複・孤児クリーンアップ
+
+iTunes の「ライブラリの整理」等でフォルダ名が変わると、MusicBee 側に**同じ曲の古いコピー**が残ることがある。
+**孤児** (パス不一致) と **重複** (内容がバイト完全一致) は別概念 (詳細は [docs/internals.md](docs/internals.md))。
+
+1. `[ファイル同期] > 差分` → dry-run で孤児件数を確認 → `apply` ON で `orphan_files.txt` 出力
+2. 重複リストを用意する (`find_duplicates.py` は未実装。現状は手動分析または将来の整理タブ)
+3. `py cleanup_duplicates.py --from-list <リスト> --apply` で削除
+4. MusicBee でライブラリ再スキャン
+
+> 重複の自動検出・GUI からの削除は今後追加予定。差分タブ脚注にも CLI 名が記載されている。
 
 ### CLI シナリオ集
 
@@ -152,7 +173,29 @@ py mirror_changed.py --create-missing
 
 #### E. 孤児 (DST にだけある曲) の精査
 
-`sync_files.py --apply` を実行すると `orphan_files.txt` が生成される。手動で確認して、不要ならエクスプローラで削除。自動削除はしない設計。
+`sync_files.py --apply` を実行すると `orphan_files.txt` が生成される。削除は次の CLI:
+
+```powershell
+py cleanup_duplicates.py --from-list orphan_files.txt --apply
+```
+
+#### F. iTunes 整理後の重複・孤児クリーンアップ
+
+```powershell
+# 1. 孤児の検出
+py sync_files.py                    # dry-run (件数確認)
+py sync_files.py --apply            # orphan_files.txt 出力
+
+# 2. 孤児削除 (明示確認のうえ)
+py cleanup_duplicates.py --from-list orphan_files.txt --apply
+
+# 3. 内容完全一致の重複削除 (リストが用意できている場合)
+py cleanup_duplicates.py --from-list reports/duplicate_delete_candidates.txt --apply
+
+# 4. MusicBee でライブラリ再スキャン
+```
+
+重複リストの自動生成 (`find_duplicates.py`) は未実装。孤児と重複の違いは [docs/internals.md](docs/internals.md) 参照。
 
 ### MusicBee 側の表示更新
 
@@ -172,6 +215,7 @@ star_rate_sync/
 ├── verify_tags.py         # 書き込み済みタグの読み戻し検証
 ├── repair_mirror.py       # state と DST タグの不一致を救出
 ├── sync_files.py          # ファイル本体の差分同期 (評価非依存)
+├── cleanup_duplicates.py  # リスト指定の重複/孤児ファイル削除 (検出は別)
 ├── gui.py                 # Tkinter GUI (CLI を subprocess で呼ぶ)
 ├── start_gui.pyw          # GUI 起動用ランチャー
 ├── starcore/              # 純粋ロジック (テスト容易)

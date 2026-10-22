@@ -1,13 +1,16 @@
 """cleanup_duplicates.py
 
-MusicBee 側 (DST) の内容完全一致重複ファイルを削除する。
+MusicBee 側 (DST) のファイルを、リストファイルに基づいて削除する。
 
 既定は dry-run。``--apply`` 指定時のみファイルを削除する。
-削除対象リストは ``find_duplicates.py`` が生成する
-``reports/duplicate_delete_candidates.txt`` を想定。
+
+**本スクリプトは重複・孤児の検出を行わない。** リストの用意方法:
+
+- **孤児**: ``sync_files.py --apply`` が出力する ``orphan_files.txt``
+- **重複** (内容バイト完全一致): 別途リストを用意 (``find_duplicates.py`` は未実装)
 
 Usage:
-    py cleanup_duplicates.py --from-list reports/duplicate_delete_candidates.txt
+    py cleanup_duplicates.py --from-list orphan_files.txt
     py cleanup_duplicates.py --from-list reports/duplicate_delete_candidates.txt --apply
 """
 from __future__ import annotations
@@ -37,7 +40,7 @@ def main() -> None:
     display.init_console_for_utf8()
 
     parser = argparse.ArgumentParser(
-        description="重複ファイル削除リストに基づき DST 側の余剰コピーを削除する"
+        description="リストファイルに基づき DST 側のファイルを削除する (検出は行わない)"
     )
     parser.add_argument(
         "--from-list",
@@ -64,7 +67,7 @@ def main() -> None:
         sys.exit(2)
 
     targets = read_list(list_path)
-    title = "重複ファイル削除"
+    title = "リスト指定ファイル削除"
     if not args.apply:
         title += "  (dry-run)"
     display.print_header(title)
