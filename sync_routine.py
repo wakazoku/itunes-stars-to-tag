@@ -16,12 +16,11 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import subprocess
 import sys
 from pathlib import Path
 
 from starcore import display
-from starcore.routine import run_routine
+from starcore.routine import run_routine, run_step
 
 
 def main() -> None:
@@ -49,11 +48,11 @@ def main() -> None:
 
     def runner(argv: list[str], cwd: Path) -> int:
         display.print_header("$ " + " ".join(argv[2:]))
-        completed = subprocess.run(argv, cwd=cwd)
+        code = run_step(argv, cwd)
         print()
-        if completed.returncode != 0:
-            print(f"[error] {argv[2]} が終了コード {completed.returncode} で失敗したため中断します")
-        return completed.returncode
+        if code != 0:
+            print(f"[error] {argv[2]} が終了コード {code} で失敗したため中断します")
+        return code
 
     code = run_routine(args.apply, sys.executable, root, runner)
     if code == 0 and not args.apply:

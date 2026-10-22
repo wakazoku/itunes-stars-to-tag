@@ -29,6 +29,21 @@ ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 # 出さないためのフラグ。Linux / macOS では 0 (=何もしない)。
 CREATE_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 
+
+def cli_python() -> str:
+    """CLI サブプロセス用の Python。
+
+    ``start_gui.pyw`` だと ``sys.executable`` は pythonw.exe になる。
+    pythonw の子は標準エラーが None になり、tqdm が起動直後に落ちる。
+    コンソール無しの python.exe を使う (窓は ``CREATE_NO_WINDOW`` で出さない)。
+    """
+    exe = sys.executable
+    if exe.lower().endswith("pythonw.exe"):
+        console = exe[: -len("pythonw.exe")] + "python.exe"
+        if os.path.isfile(console):
+            return console
+    return exe
+
 # 子プロセスからの 1 サイクルあたりの読み出し間隔 (ms)。
 # 短いほどリアルタイム性が上がるが、CPU を食う。
 POLL_INTERVAL_MS = 80
@@ -467,13 +482,13 @@ class App:
 
     # ---- argv 構築 ----
     def _compose_routine_argv(self) -> List[str]:
-        argv = [sys.executable, "-u", "sync_routine.py"]
+        argv = [cli_python(), "-u", "sync_routine.py"]
         if self.var_routine_apply.get():
             argv.append("--apply")
         return argv
 
     def _compose_sync_argv(self) -> List[str]:
-        argv = [sys.executable, "-u", "sync_ratings.py"]
+        argv = [cli_python(), "-u", "sync_ratings.py"]
         if self.var_sync_dry_run.get():
             argv.append("--dry-run")
         if self.var_sync_force_all.get():
@@ -486,7 +501,7 @@ class App:
         return argv
 
     def _compose_mirror_argv(self) -> List[str]:
-        argv = [sys.executable, "-u", "mirror_changed.py"]
+        argv = [cli_python(), "-u", "mirror_changed.py"]
         if self.var_mirror_dry_run.get():
             argv.append("--dry-run")
         if self.var_mirror_create_missing.get():
@@ -494,14 +509,14 @@ class App:
         return argv
 
     def _compose_verify_argv(self) -> List[str]:
-        argv = [sys.executable, "-u", "verify_tags.py"]
+        argv = [cli_python(), "-u", "verify_tags.py"]
         limit = self.var_verify_limit.get()
         if limit > 0:
             argv += ["--limit", str(limit)]
         return argv
 
     def _compose_repair_argv(self) -> List[str]:
-        argv = [sys.executable, "-u", "repair_mirror.py"]
+        argv = [cli_python(), "-u", "repair_mirror.py"]
         if self.var_repair_apply.get():
             argv.append("--apply")
         if self.var_repair_include_missing.get():
@@ -509,7 +524,7 @@ class App:
         return argv
 
     def _compose_files_argv(self) -> List[str]:
-        argv = [sys.executable, "-u", "sync_files.py"]
+        argv = [cli_python(), "-u", "sync_files.py"]
         if self.var_files_apply.get():
             argv.append("--apply")
         if self.var_files_no_include_new.get():

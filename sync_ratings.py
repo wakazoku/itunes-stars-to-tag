@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import argparse
 import logging
+import sys
 from pathlib import Path
 
 import win32com.client
@@ -97,7 +98,10 @@ def main() -> None:
     changed_paths: list[str] = []
 
     try:
-        for i in tqdm(range(1, total + 1), desc="sync", unit="track"):
+        # pythonw では sys.stderr が None のことがある。そのとき tqdm は
+        # 進捗を書こうとして即落ちるので、書ける方へ出す。
+        bar_out = sys.stderr if sys.stderr is not None else sys.stdout
+        for i in tqdm(range(1, total + 1), desc="sync", unit="track", file=bar_out):
             try:
                 track = tracks.Item(i)
 
