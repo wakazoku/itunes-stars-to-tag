@@ -114,6 +114,11 @@ iTunes の「ライブラリの整理」等でフォルダ名が変わると、M
 2. 重複リストを用意する (`find_duplicates.py` は未実装。現状は手動分析または将来の整理タブ)
 3. `py cleanup_duplicates.py --from-list <リスト> --apply` で削除
 4. MusicBee でライブラリ再スキャン
+5. MusicBee の通常プレイリスト (`.mbp`) を iTunes から作り直す
+   - 削除したファイルを指したままになり、デバイス同期が「Copy Failed - 指定されたファイルが見つかりません」で失敗するため
+   - 再スキャンや「欠落したファイルを検索」では、プレイリスト内のリンクは直らない
+   - iTunes の同名プレイリストを DST のパスで `.m3u8` に書き出し、MusicBee で読み込んで古いプレイリストと差し替える
+   - デバイス同期の対象プレイリストを新しい方に選び直す
 
 > 重複の自動検出・GUI からの削除は今後追加予定。差分タブ脚注にも CLI 名が記載されている。
 
@@ -193,6 +198,8 @@ py cleanup_duplicates.py --from-list orphan_files.txt --apply
 py cleanup_duplicates.py --from-list reports/duplicate_delete_candidates.txt --apply
 
 # 4. MusicBee でライブラリ再スキャン
+
+# 5. MusicBee のプレイリストを iTunes から作り直す (GUI シナリオ F の手順 5 を参照)
 ```
 
 重複リストの自動生成 (`find_duplicates.py`) は未実装。孤児と重複の違いは [docs/internals.md](docs/internals.md) 参照。

@@ -86,6 +86,7 @@ SRC (iTunes) を正とする運用では、孤児は基本的に削除してよ�
 | MusicBee で星が反映されない | MusicBee のキャッシュ未更新 | MusicBee でライブラリ再スキャン |
 | MusicBee 側の曲数が iTunes より多い | iTunes 整理後に古いパスが DST に残っている (孤児・重複) | `sync_files.py` で孤児確認 → `cleanup_duplicates.py` で削除 |
 | 同じ曲が MusicBee で2回表示される | 別パスに同一内容のファイル (重複) | 重複リスト → `cleanup_duplicates.py --apply` (自動検出は未実装) |
+| デバイス同期で「Copy Failed - 指定されたファイルが見つかりません」 | 重複・孤児の削除後、MusicBee のプレイリストが削除済みのパスを指したまま | iTunes のプレイリストから `.m3u8` を作り直して MusicBee で読み込む (README シナリオ F 手順 5) |
 | MusicBee 側だけ評価が古いまま | `changed_files.txt` がリセットされた状態で mirror を流してしまった等 | `py repair_mirror.py` で検出 → `--apply` で追記 → `py mirror_changed.py` で再反映 |
 | `RatingKind` AttributeError | iTunes バージョンが古い | iTunes を最新版に更新 |
 | `mirror_changed.py` で大量の `NO-DST` | SRC_ROOT / DST_ROOT のフォルダ構造がズレている | `--src-root` / `--dst-root` を正しいルートに指定、または `--create-missing` |
